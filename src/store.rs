@@ -166,7 +166,7 @@ impl Store {
     /// has arrived. No upper bound - a moment that passed while the machine was
     /// off still fires the next check (behavior A). Firing once is enforced by
     /// `notified`, set via `mark_notified` after the notification goes out.
-    pub fn due_reminders(&self, now: &jiff::Zoned) -> Vec<DueReminder> {
+    pub fn due_reminders(&self, now: &jiff::Zoned, lead_minutes: u16) -> Vec<DueReminder> {
         let today = now.date();
         let mut out = Vec::new();
         for (key, entries) in &self.days {
@@ -183,7 +183,7 @@ impl Store {
                 let Some(hour) = entry.hour else {
                     continue;
                 };
-                if reminder_reached(now, date, hour) {
+                if reminder_reached(now, date, hour, lead_minutes) {
                     out.push(DueReminder {
                         date: key.clone(),
                         index,
@@ -214,20 +214,17 @@ impl Store {
 /// `date` - 30 minutes before `hour:00`. Built in `now`'s time zone with
 /// checked arithmetic; anything unbuildable yields "not reached" rather than
 /// firing spuriously or panicking the panel.
-fn reminder_reached(now: &jiff::Zoned, date: Date, hour: u8) -> bool {
+fn reminder_reached(now: &jiff::Zoned, date: Date, hour: u8, lead_minutes: u16) -> bool {
     use jiff::ToSpan;
     let due_civil = date.at(hour as i8, 0, 0, 0);
     let Ok(due_zoned) = due_civil.to_zoned(now.time_zone().clone()) else {
         return false;
     };
-    let Ok(reminder_at) = due_zoned.checked_sub(REMINDER_LEAD.minutes()) else {
+    let Ok(reminder_at) = due_zoned.checked_sub(i64::from(lead_minutes).minutes()) else {
         return false;
     };
     *now >= reminder_at
 }
-
-/// Minutes before an entry's hour that its reminder fires. Hardcoded for now.
-const REMINDER_LEAD: i64 = 30;
 
 /// `$XDG_DATA_HOME/void-watcher/todos.json` (falling back to `~/.local/share`).
 fn data_path() -> Option<PathBuf> {

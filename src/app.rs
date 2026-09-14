@@ -20,6 +20,7 @@ use jiff::fmt::strtime;
 
 use crate::calendar::{self, MonthView};
 use crate::config::{TIME_CONFIG_ID, TimeAppletConfig};
+use crate::settings::Settings;
 use crate::day::{self, DayMessage};
 use crate::store::Store;
 
@@ -52,6 +53,9 @@ pub struct AppModel {
     popup: Option<window::Id>,
     /// The stock time applet's settings, mirrored live from Settings.
     config: TimeAppletConfig,
+    /// Void Watcher's own preferences (reminder defaults), loaded and saved by
+    /// this applet. Kept live via a config subscription.
+    settings: Settings,
     /// Wall clock, refreshed once a second by the tick subscription.
     now: Zoned,
     /// Any day within the month currently shown by the grid.
@@ -87,6 +91,8 @@ pub enum Message {
     PopupClosed(window::Id),
     Tick,
     ConfigChanged(TimeAppletConfig),
+    /// Void Watcher's own settings changed on disk (e.g. from the settings UI).
+    SettingsChanged(Settings),
     /// A day was left-clicked in the grid: highlight it.
     HighlightDay(Date),
     /// A day was right-clicked in the grid: open its to-do list.
@@ -120,6 +126,7 @@ impl cosmic::Application for AppModel {
             core,
             popup: None,
             config: TimeAppletConfig::load(),
+            settings: Settings::load(),
             visible: now.date(),
             now,
             selected: None,
@@ -193,6 +200,11 @@ impl cosmic::Application for AppModel {
             self.core
                 .watch_config::<TimeAppletConfig>(TIME_CONFIG_ID)
                 .map(|update| Message::ConfigChanged(update.config)),
+            // Follow Void Watcher's own preferences live, so a settings change
+            // takes effect without a restart.
+            self.core
+                .watch_config::<Settings>(crate::settings::CONFIG_ID)
+                .map(|update| Message::SettingsChanged(update.config)),
             cosmic::iced::time::every(Duration::from_secs(1)).map(|_| Message::Tick),
             rectangle_tracker_subscription(0).map(|update| Message::Rectangle(update.1)),
         ])
@@ -271,6 +283,9 @@ impl cosmic::Application for AppModel {
             }
             Message::ConfigChanged(config) => {
                 self.config = config;
+            }
+            Message::SettingsChanged(settings) => {
+                self.settings = settings;
             }
             Message::HighlightDay(date) => {
                 self.visible = date;
@@ -385,7 +400,7 @@ impl AppModel {
     /// minute from the tick; the store decides what's due (see
     /// `Store::due_reminders`), including reminders missed while off.
     fn fire_due_reminders(&mut self) {
-        for due in self.store.due_reminders(&self.now) {
+        for due in self.store.due_reminders(&self.now, self.settings.reminder_lead_minutes) {
             let body = format!("Due at {}", day::hour_label(Some(due.hour)));
             crate::notify::send(&due.text, &body);
             self.store.mark_notified(&due.date, due.index);

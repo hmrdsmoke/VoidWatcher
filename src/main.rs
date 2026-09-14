@@ -11,6 +11,7 @@ mod config;
 mod day;
 mod i18n;
 mod notify;
+mod settings;
 mod store;
 
 fn main() -> cosmic::iced::Result {
