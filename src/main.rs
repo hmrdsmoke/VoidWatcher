@@ -8,10 +8,7 @@
 mod app;
 mod calendar;
 mod config;
-mod day;
 mod i18n;
-mod store;
-mod notify;
 
 fn main() -> cosmic::iced::Result {
     // Get the system's preferred languages.

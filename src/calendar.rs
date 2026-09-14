@@ -16,7 +16,6 @@ use cosmic::widget::{Grid, container, grid, mouse_area, text};
 use cosmic::{Element, theme};
 use jiff::civil::{Date, Weekday};
 
-use crate::store::Store;
 
 /// Six rows of seven always covers a month: the longest case is a 31-day month
 /// whose 1st falls on the last column, needing 37 cells → 6 rows.
@@ -24,7 +23,7 @@ const ROWS: usize = 6;
 const COLS: usize = 7;
 
 /// Everything the grid needs to draw itself, so the view code stays declarative.
-pub struct MonthView<'a> {
+pub struct MonthView {
     /// Any day within the month being shown (day-of-month is ignored).
     pub visible: Date,
     /// The real today, drawn with an accent ring.
@@ -33,8 +32,6 @@ pub struct MonthView<'a> {
     pub selected: Option<Date>,
     /// Which weekday sits in column one, from the user's Date & Time setting.
     pub first_weekday: Weekday,
-    /// To-do data, read only to decide which days get a dot.
-    pub store: &'a Store,
 }
 
 /// One weekday-header + day grid for the visible month.
@@ -44,9 +41,8 @@ pub struct MonthView<'a> {
 /// next month are dimmed but still respond, so interacting with the greyed "1"
 /// of next month just carries you there.
 pub fn month<'a, Message: Clone + 'static>(
-    view: MonthView<'a>,
+    view: MonthView,
     on_highlight: impl Fn(Date) -> Message + 'a,
-    on_open: impl Fn(Date) -> Message + 'a,
 ) -> Element<'a, Message> {
     let spacing = theme::active().cosmic().spacing;
 
@@ -84,12 +80,11 @@ pub fn month<'a, Message: Clone + 'static>(
                 in_month,
                 is_today: day == view.today,
                 is_selected: view.selected == Some(day),
-                has_dot: view.store.has_entries(day),
+                has_dot: false,
             });
             grid = grid.push(
                 mouse_area(cell)
-                    .on_press(on_highlight(day))
-                    .on_right_press(on_open(day)),
+                    .on_press(on_highlight(day)),
             );
             day = day
                 .tomorrow()
