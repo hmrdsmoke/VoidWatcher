@@ -110,25 +110,48 @@ pub fn view<'a>(
         .on_submit(|_| DayMessage::Submit)
         .width(Length::Fill);
 
-    // -/+ hour stepper: minus, the current label, plus. Two plain icon buttons
-    // around a centered label; no popover, nothing to get clipped in the popup.
+    // -/+ hour stepper, styled as one compact control: minus, a fixed-width
+    // value, plus, grouped tight inside a subtle bordered pill and centered in
+    // the row rather than stretched edge to edge. The fixed value width keeps
+    // the pill from jumping as the label swaps between "None" and a clock time.
     let minus = button::icon(icon::from_name("list-remove-symbolic").size(16))
         .on_press(DayMessage::HourDown);
     let plus = button::icon(icon::from_name("list-add-symbolic").size(16))
         .on_press(DayMessage::HourUp);
-    let stepper = row::with_capacity(3)
+    let stepper_inner = row::with_capacity(3)
         .push(minus)
         .push(
             container(text(hour_label(draft_hour)).size(14))
-                .width(Length::Fill)
-                .center_x(Length::Fill),
+                .width(Length::Fixed(96.0))
+                .center_x(Length::Fixed(96.0)),
         )
         .push(plus)
-        .spacing(spacing.space_xs)
+        .spacing(spacing.space_xxs)
         .align_y(Alignment::Center);
+    let stepper_pill = container(stepper_inner)
+        .padding([2, 6])
+        .class(cosmic::style::Container::custom(|t| {
+            let cosmic = t.cosmic();
+            cosmic::iced::widget::container::Style {
+                border: cosmic::iced::Border {
+                    radius: cosmic.corner_radii.radius_m.into(),
+                    width: 1.0,
+                    color: cosmic.palette.neutral_5.into(),
+                },
+                ..Default::default()
+            }
+        }));
+    // Center the pill in the full-width row so it floats in the middle.
+    let stepper = container(stepper_pill)
+        .width(Length::Fill)
+        .center_x(Length::Fill);
 
     // Add button.
-    let add_button = button::text("Add").on_press(DayMessage::Submit).width(Length::Fill);
+    // Add button: the primary action, so a filled "suggested" (accent) button
+    // rather than flat text. Reads clearly as the thing to press.
+    let add_button = button::suggested("Add")
+        .on_press(DayMessage::Submit)
+        .width(Length::Fill);
 
     // The existing items, one row each.
     let entries = store.day(date);
