@@ -10,6 +10,7 @@ mod calendar;
 mod config;
 mod day;
 mod i18n;
+mod notify;
 mod store;
 
 fn main() -> cosmic::iced::Result {

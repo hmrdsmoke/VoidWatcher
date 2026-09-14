@@ -68,6 +68,9 @@ pub struct AppModel {
     /// Optional hour sitting in the day view's stepper, paired with `draft`.
     /// Reset with `draft`.
     draft_hour: Option<u8>,
+    /// The minute (0-59) the reminder check last ran, so it runs once a minute
+    /// rather than every one-second tick. `None` until the first check.
+    last_reminder_minute: Option<i8>,
     /// Handle to the panel's rectangle tracker, delivered once at startup.
     rectangle_tracker: Option<RectangleTracker<u32>>,
     /// The panel button's true on-screen rectangle, reported by the tracker.
@@ -124,6 +127,7 @@ impl cosmic::Application for AppModel {
             screen: Screen::Month,
             draft: String::new(),
             draft_hour: None,
+            last_reminder_minute: None,
             rectangle_tracker: None,
             rectangle: Rectangle::default(),
         };
@@ -257,6 +261,13 @@ impl cosmic::Application for AppModel {
             },
             Message::Tick => {
                 self.now = Zoned::now();
+                // Reminders fire on minute boundaries, so only scan when the
+                // minute changes - not every one-second tick.
+                let minute = self.now.minute();
+                if self.last_reminder_minute != Some(minute) {
+                    self.last_reminder_minute = Some(minute);
+                    self.fire_due_reminders();
+                }
             }
             Message::ConfigChanged(config) => {
                 self.config = config;
@@ -367,6 +378,18 @@ impl AppModel {
             .spacing(spacing.space_s)
             .align_x(Alignment::Center)
             .into()
+    }
+
+    /// Send desktop notifications for every to-do whose reminder moment has
+    /// arrived, and mark each so it fires exactly once. Called at most once a
+    /// minute from the tick; the store decides what's due (see
+    /// `Store::due_reminders`), including reminders missed while off.
+    fn fire_due_reminders(&mut self) {
+        for due in self.store.due_reminders(&self.now) {
+            let body = format!("Due at {}", day::hour_label(Some(due.hour)));
+            crate::notify::send(&due.text, &body);
+            self.store.mark_notified(&due.date, due.index);
+        }
     }
 
     /// Apply a day-view message to the store or navigate back.

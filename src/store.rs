@@ -24,10 +24,15 @@ pub struct Entry {
     /// Ticked off or not.
     #[serde(default)]
     pub done: bool,
-    /// Optional whole-hour (0-23) this to-do is tagged with. `None` means no
-    /// time. Shown as a label on the entry; nothing acts on it in this build.
+    /// Optional whole-hour (0-23) this to-do is "due" at. `None` means no time
+    /// and no reminder. The reminder fires 30 minutes before this hour (see
+    /// `due_reminders`).
     #[serde(default)]
     pub hour: Option<u8>,
+    /// Whether this entry's reminder has already been sent. Persisted so a
+    /// reboot doesn't re-fire everything - once true, it never notifies again.
+    #[serde(default)]
+    pub notified: bool,
 }
 
 impl Entry {
@@ -36,8 +41,23 @@ impl Entry {
             text,
             done: false,
             hour,
+            notified: false,
         }
     }
+}
+
+/// A single reminder ready to fire, handed to the app. Carries just enough to
+/// write the notification and to mark the source entry sent.
+#[derive(Debug, Clone)]
+pub struct DueReminder {
+    /// ISO date key of the day this entry lives on.
+    pub date: String,
+    /// Index of the entry within that day's list.
+    pub index: usize,
+    /// The entry's text, for the notification body.
+    pub text: String,
+    /// The hour the entry is due at (0-23), for the notification body.
+    pub hour: u8,
 }
 
 /// Every day's entries, keyed by ISO date string ("2026-09-13").
@@ -140,7 +160,74 @@ impl Store {
             }
         }
     }
+
+    /// Every reminder ready to fire as of `now`: an entry with an hour, not
+    /// done, not yet notified, whose reminder moment (30 min before the hour)
+    /// has arrived. No upper bound - a moment that passed while the machine was
+    /// off still fires the next check (behavior A). Firing once is enforced by
+    /// `notified`, set via `mark_notified` after the notification goes out.
+    pub fn due_reminders(&self, now: &jiff::Zoned) -> Vec<DueReminder> {
+        let today = now.date();
+        let mut out = Vec::new();
+        for (key, entries) in &self.days {
+            let Ok(date) = key.parse::<Date>() else {
+                continue;
+            };
+            if date > today {
+                continue;
+            }
+            for (index, entry) in entries.iter().enumerate() {
+                if entry.notified || entry.done {
+                    continue;
+                }
+                let Some(hour) = entry.hour else {
+                    continue;
+                };
+                if reminder_reached(now, date, hour) {
+                    out.push(DueReminder {
+                        date: key.clone(),
+                        index,
+                        text: entry.text.clone(),
+                        hour,
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    /// Mark one entry's reminder as sent, and persist. Called by the app after
+    /// `notify::send` so it never repeats.
+    pub fn mark_notified(&mut self, date: &str, index: usize) {
+        if let Some(entries) = self.days.get_mut(date) {
+            if let Some(entry) = entries.get_mut(index) {
+                if !entry.notified {
+                    entry.notified = true;
+                    self.save();
+                }
+            }
+        }
+    }
 }
+
+/// Whether `now` has reached the reminder moment for an entry due at `hour` on
+/// `date` - 30 minutes before `hour:00`. Built in `now`'s time zone with
+/// checked arithmetic; anything unbuildable yields "not reached" rather than
+/// firing spuriously or panicking the panel.
+fn reminder_reached(now: &jiff::Zoned, date: Date, hour: u8) -> bool {
+    use jiff::ToSpan;
+    let due_civil = date.at(hour as i8, 0, 0, 0);
+    let Ok(due_zoned) = due_civil.to_zoned(now.time_zone().clone()) else {
+        return false;
+    };
+    let Ok(reminder_at) = due_zoned.checked_sub(REMINDER_LEAD.minutes()) else {
+        return false;
+    };
+    *now >= reminder_at
+}
+
+/// Minutes before an entry's hour that its reminder fires. Hardcoded for now.
+const REMINDER_LEAD: i64 = 30;
 
 /// `$XDG_DATA_HOME/void-watcher/todos.json` (falling back to `~/.local/share`).
 fn data_path() -> Option<PathBuf> {
