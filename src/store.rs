@@ -24,12 +24,41 @@ pub struct Entry {
     /// Ticked off or not.
     #[serde(default)]
     pub done: bool,
+    /// Optional whole-hour (0–23) this to-do is "due" at. `None` means a
+    /// timeless entry — sometime that day, no reminder. The reminder itself
+    /// fires 30 minutes before this hour (see `notify` / `due_reminders`).
+    #[serde(default)]
+    pub hour: Option<u8>,
+    /// Whether this entry's reminder has already been sent. Persisted so a
+    /// reboot doesn't re-fire everything — once true, it never notifies again.
+    /// Timeless entries leave this false forever, harmlessly.
+    #[serde(default)]
+    pub notified: bool,
 }
 
 impl Entry {
-    fn new(text: String) -> Self {
-        Self { text, done: false }
+    fn new(text: String, hour: Option<u8>) -> Self {
+        Self {
+            text,
+            done: false,
+            hour,
+            notified: false,
+        }
     }
+}
+
+/// A single reminder that's ready to fire, handed to the notifier. Carries just
+/// enough to write the notification body and to mark the source entry sent.
+#[derive(Debug, Clone)]
+pub struct DueReminder {
+    /// ISO date key of the day this entry lives on.
+    pub date: String,
+    /// Index of the entry within that day's list.
+    pub index: usize,
+    /// The entry's text, for the notification body.
+    pub text: String,
+    /// The hour the entry is due at (0–23), for the notification body.
+    pub hour: u8,
 }
 
 /// Every day's entries, keyed by ISO date string ("2026-09-13").
@@ -92,9 +121,9 @@ impl Store {
         self.days.get(&date.to_string()).is_some_and(|v| !v.is_empty())
     }
 
-    /// Add a line to a day. Blank input is ignored so an empty text box plus
-    /// Enter doesn't create a phantom entry.
-    pub fn add(&mut self, date: Date, text: String) {
+    /// Add a line to a day, optionally due at a whole hour. Blank input is
+    /// ignored so an empty text box plus Enter doesn't create a phantom entry.
+    pub fn add(&mut self, date: Date, text: String, hour: Option<u8>) {
         let text = text.trim();
         if text.is_empty() {
             return;
@@ -102,7 +131,7 @@ impl Store {
         self.days
             .entry(date.to_string())
             .or_default()
-            .push(Entry::new(text.to_owned()));
+            .push(Entry::new(text.to_owned(), hour));
         self.save();
     }
 
@@ -132,7 +161,88 @@ impl Store {
             }
         }
     }
+
+    /// Every reminder that is ready to fire as of `now`.
+    ///
+    /// An entry is due when it has an hour, hasn't been notified yet, isn't
+    /// already done, and `now` has reached its reminder moment — `REMINDER_LEAD`
+    /// minutes before the hour. There is deliberately no upper bound: a reminder whose
+    /// moment passed while the machine was off still fires the next time we
+    /// check, so a missed to-do surfaces whenever you next see the desktop
+    /// (behavior "A"). Firing once is enforced by `notified`, which the caller
+    /// sets via `mark_notified` after the notification goes out.
+    pub fn due_reminders(&self, now: jiff::Zoned) -> Vec<DueReminder> {
+        // If the compiler ever rejects `.date()` here, it's `now.datetime().date()`.
+        let today = now.date();
+        let mut out = Vec::new();
+        for (key, entries) in &self.days {
+            // Only today's (or earlier) days can have a passed reminder moment;
+            // a future day's reminder can't be due yet. Parse the key back to a
+            // date; skip anything that doesn't parse or is still ahead of us.
+            let Ok(date) = key.parse::<Date>() else {
+                continue;
+            };
+            if date > today {
+                continue;
+            }
+            for (index, entry) in entries.iter().enumerate() {
+                if entry.notified || entry.done {
+                    continue;
+                }
+                let Some(hour) = entry.hour else {
+                    continue;
+                };
+                if reminder_reached(&now, date, hour) {
+                    out.push(DueReminder {
+                        date: key.clone(),
+                        index,
+                        text: entry.text.clone(),
+                        hour,
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    /// Mark one entry as having had its reminder sent, and persist. Called by
+    /// the app after `notify::send` for each fired reminder so it never repeats.
+    pub fn mark_notified(&mut self, date: &str, index: usize) {
+        if let Some(entries) = self.days.get_mut(date) {
+            if let Some(entry) = entries.get_mut(index) {
+                if !entry.notified {
+                    entry.notified = true;
+                    self.save();
+                }
+            }
+        }
+    }
 }
+
+/// Whether `now` has reached the reminder moment for an entry due at `hour` on
+/// `date` — that moment being 30 minutes before `hour:00` on that date.
+///
+/// The due instant is built in the same time zone as `now`, then 30 minutes are
+/// subtracted with checked arithmetic. Anything that can't be built or computed
+/// (an out-of-range hour, an overflow) yields "not reached" rather than firing
+/// spuriously or panicking the panel process. `RETICK` minutes is the lead time.
+fn reminder_reached(now: &jiff::Zoned, date: Date, hour: u8) -> bool {
+    use jiff::ToSpan;
+
+    // date.at(hour, 0, 0, 0) -> civil DateTime; bail if the hour is out of range.
+    let due_civil = date.at(hour as i8, 0, 0, 0);
+    let Ok(due_zoned) = due_civil.to_zoned(now.time_zone().clone()) else {
+        return false;
+    };
+    let Ok(reminder_at) = due_zoned.checked_sub(REMINDER_LEAD.minutes()) else {
+        return false;
+    };
+    *now >= reminder_at
+}
+
+/// How many minutes before an entry's hour its reminder fires. Hardcoded for
+/// v1; a natural setting to expose later.
+const REMINDER_LEAD: i64 = 30;
 
 /// `$XDG_DATA_HOME/void-watcher/todos.json` (falling back to `~/.local/share`).
 fn data_path() -> Option<PathBuf> {

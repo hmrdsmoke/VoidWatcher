@@ -21,6 +21,12 @@ cosmic = { git = "https://github.com/pop-os/libcosmic", rev = "fc5debccef41cd6bd
     "dbus-config",   # live config updates through the settings daemon
 ] }
 
+# ── Notifications ────────────────────────────────────────────────────────────
+# Desktop notifications for to-do reminders. Same pin as GhostWhisper.
+notify-rust = { version = "4", default-features = false, features = ["z-with-tokio"] }
+
+# ── Time ─────────────────────────────────────────────────────────────────────
+
 # ── Time ─────────────────────────────────────────────────────────────────────
 # libcosmic's calendar widget speaks jiff; same major it uses.
 jiff = { version = "0.2", features = ["serde"] }

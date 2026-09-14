@@ -59,6 +59,9 @@ pub struct AppModel {
     /// Text sitting in the day view's "add" box, held here so the input stays
     /// controlled across redraws.
     draft: String,
+    /// Optional hour sitting in the day view's hour picker, paired with `draft`.
+    /// `None` means "Anytime" — the entry gets no reminder. Reset with `draft`.
+    draft_hour: Option<u8>,
     /// Handle to the panel's rectangle tracker, delivered once at startup.
     rectangle_tracker: Option<RectangleTracker<u32>>,
     /// The panel button's true on-screen rectangle, reported by the tracker.
@@ -124,6 +127,7 @@ impl cosmic::Application for AppModel {
             screen: Screen::Month,
             selected: None,
             draft: String::new(),
+            draft_hour: None,
             rectangle_tracker: None,
             rectangle: Rectangle::default(),
         };
@@ -193,7 +197,7 @@ impl cosmic::Application for AppModel {
             Screen::Month => self.month_screen(),
             Screen::Day(date) => {
                 let time = strtime::format(self.time_format(), &self.now).unwrap_or_default();
-                day::view(date, &self.store, &self.draft, time).map(Message::Day)
+                day::view(date, &self.store, &self.draft, self.draft_hour, time).map(Message::Day)
             }
         };
         self.core.applet.popup_container(content).into()
@@ -286,6 +290,10 @@ impl cosmic::Application for AppModel {
             },
             Message::Tick => {
                 self.now = Zoned::now();
+                // Fire any to-do reminders that have come due (30 min before an
+                // entry's hour), including ones whose moment passed while the
+                // machine was off. Each is marked notified so it never repeats.
+                self.fire_due_reminders();
             }
             Message::ConfigChanged(config) => {
                 self.config = config;
@@ -302,6 +310,7 @@ impl cosmic::Application for AppModel {
                 self.visible = date;
                 self.selected = Some(date);
                 self.draft.clear();
+                self.draft_hour = None;
                 self.screen = Screen::Day(date);
                 return text_input::focus(day::INPUT_ID.clone());
             }
@@ -426,12 +435,18 @@ impl AppModel {
             DayMessage::Back => {
                 self.screen = Screen::Month;
                 self.draft.clear();
+                self.draft_hour = None;
             }
             DayMessage::Input(text) => {
                 self.draft = text;
             }
+            DayMessage::HourSpin(value) => {
+                self.draft_hour = day::hour_from_spin(value);
+            }
             DayMessage::Submit => {
-                self.store.add(date, std::mem::take(&mut self.draft));
+                let hour = self.draft_hour;
+                self.store.add(date, std::mem::take(&mut self.draft), hour);
+                self.draft_hour = None;
                 return text_input::focus(day::INPUT_ID.clone());
             }
             DayMessage::Toggle(index) => {
@@ -442,6 +457,19 @@ impl AppModel {
             }
         }
         Task::none()
+    }
+
+    /// Send desktop notifications for every to-do whose reminder moment has
+    /// arrived, and mark each so it fires exactly once. Called every tick; the
+    /// store decides what's due (see `Store::due_reminders`), including missed
+    /// reminders from while the machine was off.
+    fn fire_due_reminders(&mut self) {
+        for due in self.store.due_reminders(self.now.clone()) {
+            let summary = due.text.clone();
+            let body = format!("Due at {}", day::hour_label(Some(due.hour)));
+            crate::notify::send(&summary, &body);
+            self.store.mark_notified(&due.date, due.index);
+        }
     }
 
     /// The panel label, built from the user's Date & Time settings.
