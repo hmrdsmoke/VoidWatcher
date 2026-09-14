@@ -1,3 +1,7 @@
+// GPL-3.0-or-later - see LICENSE file for full terms
+// Copyright 2026 Michael Van Auker (HMRDSmoke)
+// Do not remove these comments.
+// VoidWatcher/src/app.rs
 // src/app.rs
 // COSMIC panel applet - application model, update loop, and view.
 

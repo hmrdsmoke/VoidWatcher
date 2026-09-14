@@ -25,6 +25,8 @@ BIN           := target/release/void-watcher
 DESK          := resources/$(APP_ID).desktop
 METAINFO      := resources/$(APP_ID).metainfo.xml
 ICONSRC       := resources/icons/hicolor
+ICON_SVG      := resources/icon.svg
+ICON_SVG_DST  := $(ICON_BASE)/scalable/apps/$(APP_ID).svg
 
 .PHONY: all release install uninstall clean
 
@@ -44,7 +46,9 @@ install: release
 	install -Dm644 $(DESK) $(APPDIR)/$(APP_ID).desktop
 	@echo "Installing metainfo → $(METADIR)"
 	install -Dm644 $(METAINFO) $(METADIR)/$(APP_ID).metainfo.xml
-	@echo "Installing icons (per-size, skips sizes not yet drawn)..."
+	@echo "Installing scalable icon → $(ICON_BASE)/scalable/apps"
+	install -Dm644 $(ICON_SVG) $(ICON_SVG_DST)
+	@echo "Installing per-size icons (skips sizes not yet drawn)..."
 	@for sz in $(ICON_SIZES); do \
 		src="$(ICONSRC)/$${sz}x$${sz}/apps/$(APP_ID).png"; \
 		if [ -f "$$src" ]; then \
@@ -65,6 +69,7 @@ uninstall:
 	rm -f $(BINDIR)/$(APP_ID)
 	rm -f $(APPDIR)/$(APP_ID).desktop
 	rm -f $(METADIR)/$(APP_ID).metainfo.xml
+	rm -f $(ICON_SVG_DST)
 	@for sz in $(ICON_SIZES); do \
 		rm -f "$(ICON_BASE)/$${sz}x$${sz}/apps/$(APP_ID).png"; \
 	done

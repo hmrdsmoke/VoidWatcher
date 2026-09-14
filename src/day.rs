@@ -1,3 +1,7 @@
+// GPL-3.0-or-later - see LICENSE file for full terms
+// Copyright 2026 Michael Van Auker (HMRDSmoke)
+// Do not remove these comments.
+// VoidWatcher/src/day.rs
 // src/day.rs
 // The day view: the popup's second screen, showing one day's to-do list.
 //

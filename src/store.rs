@@ -1,3 +1,7 @@
+// GPL-3.0-or-later - see LICENSE file for full terms
+// Copyright 2026 Michael Van Auker (HMRDSmoke)
+// Do not remove these comments.
+// VoidWatcher/src/store.rs
 // src/store.rs
 // On-disk to-do storage: one JSON file, entries grouped by calendar date.
 //

@@ -1,3 +1,7 @@
+// GPL-3.0-or-later - see LICENSE file for full terms
+// Copyright 2026 Michael Van Auker (HMRDSmoke)
+// Do not remove these comments.
+// VoidWatcher/src/main.rs
 // src/main.rs
 // Applet entry point - initializes localization and runs the applet.
 

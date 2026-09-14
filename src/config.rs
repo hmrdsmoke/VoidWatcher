@@ -1,3 +1,7 @@
+// GPL-3.0-or-later - see LICENSE file for full terms
+// Copyright 2026 Michael Van Auker (HMRDSmoke)
+// Do not remove these comments.
+// VoidWatcher/src/config.rs
 //! Reads the stock COSMIC time applet's settings so Void Watcher follows
 //! whatever the user chose in Settings › Date & Time.
 //!
