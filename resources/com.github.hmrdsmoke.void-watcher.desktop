@@ -1,0 +1,15 @@
+[Desktop Entry]
+Name=Void Watcher
+Comment=Date, time, and calendar for the COSMIC panel
+Type=Application
+Exec=com.github.hmrdsmoke.void-watcher
+Icon=com.github.hmrdsmoke.void-watcher
+Terminal=false
+Categories=Utility;X-COSMIC;
+Keywords=COSMIC;Applet;Date;Time;Calendar;Clock;
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicShrinkable=true
+X-CosmicHoverPopup=Auto
+X-HostWaylandDisplay=true

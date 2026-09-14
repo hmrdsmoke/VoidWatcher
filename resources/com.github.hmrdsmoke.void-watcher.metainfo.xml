@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.github.hmrdsmoke.void-watcher</id>
+  <name>Void Watcher</name>
+  <summary>Date, time, and calendar for the COSMIC panel</summary>
+  <description>
+    <p>
+      Void Watcher puts the date and time in your COSMIC panel and a month
+      calendar one click away. It reads the same settings the stock clock
+      does, so whatever you pick in Settings › Date &amp; Time — 24-hour time,
+      seconds, weekday, date in the panel, first day of the week, even a custom
+      format — Void Watcher follows it. Nothing to configure twice.
+    </p>
+    <p>What's in the box:</p>
+    <ul>
+      <li>Panel clock that follows your Date &amp; Time settings live</li>
+      <li>Month calendar popup with previous/next navigation and a jump back to today</li>
+      <li>Works on horizontal and vertical panels</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">com.github.hmrdsmoke.void-watcher.desktop</launchable>
+  <url type="homepage">https://github.com/hmrdsmoke/VoidWatcher</url>
+  <url type="bugtracker">https://github.com/hmrdsmoke/VoidWatcher/issues</url>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer_name>HMRDSmoke Software LLC</developer_name>
+  <developer id="com.github.hmrdsmoke">
+    <name>HMRDSmoke Software LLC</name>
+  </developer>
+  <releases>
+    <release version="0.1.0" date="2026-09-13">
+      <description>
+        <p>Initial release of Void Watcher.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <id>com.system76.CosmicApplet</id>
+  </provides>
+</component>

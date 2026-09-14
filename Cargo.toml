@@ -1,0 +1,68 @@
+[package]
+name        = "void-watcher"
+version     = "0.1.0"
+edition     = "2024"
+authors     = ["Michael Van Auker (HMRDSmoke)"]
+license     = "GPL-3.0-or-later"
+description = "Date, time, and calendar applet for the COSMIC panel"
+repository  = "https://github.com/hmrdsmoke/VoidWatcher"
+homepage    = "https://github.com/hmrdsmoke/VoidWatcher"
+readme      = "README.md"
+
+[dependencies]
+# ── UI framework ─────────────────────────────────────────────────────────────
+# Same pin as Soulless-Launcher v2.5.x. Bump both together.
+cosmic = { git = "https://github.com/pop-os/libcosmic", rev = "fc5debccef41cd6bd6731cbc768cb719847d1a2f", package = "libcosmic", features = [
+    "tokio",
+    "wayland",
+    "winit",
+    "wgpu",
+    "applet",
+    "dbus-config",   # live config updates through the settings daemon
+] }
+
+# ── Time ─────────────────────────────────────────────────────────────────────
+# libcosmic's calendar widget speaks jiff; same major it uses.
+jiff = { version = "0.2", features = ["serde"] }
+
+# ── To-do storage ────────────────────────────────────────────────────────────
+# Our own JSON file, keyed by date. dirs finds the XDG data directory.
+serde      = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dirs       = "6.0"
+
+# ── i18n ─────────────────────────────────────────────────────────────────────
+i18n-embed-fl = "0.10"
+rust-embed    = "8.7.2"
+
+[dependencies.i18n-embed]
+version  = "0.16"
+features = ["fluent-system", "desktop-requester"]
+
+# ===========================================================================
+# RELEASE PROFILE — shipped binary, fully optimized and stripped
+# Use: cargo build --release
+# ===========================================================================
+[profile.release]
+lto           = "fat"
+codegen-units = 1
+opt-level     = 3
+panic         = "abort"
+strip         = true
+
+# ===========================================================================
+# DEV RELEASE — fast compile, no LTO, for day-to-day testing
+# Use: cargo build --profile dev-release
+# ===========================================================================
+[profile.dev-release]
+inherits      = "release"
+lto           = "thin"
+codegen-units = 4
+strip         = false
+debug         = false
+
+# Uncomment to test a locally-cloned libcosmic
+# [patch.'https://github.com/pop-os/libcosmic']
+# libcosmic     = { path = "../libcosmic" }
+# cosmic-config = { path = "../libcosmic/cosmic-config" }
+# cosmic-theme  = { path = "../libcosmic/cosmic-theme" }
