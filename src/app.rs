@@ -21,6 +21,7 @@ use jiff::fmt::strtime;
 use crate::calendar::{self, MonthView};
 use crate::config::{TIME_CONFIG_ID, TimeAppletConfig};
 use crate::settings::Settings;
+use cosmic::cosmic_config::ConfigSet;
 use crate::day::{self, DayMessage};
 use crate::store::Store;
 
@@ -42,6 +43,7 @@ const POPUP_HEIGHT: f32 = 490.0;
 enum Screen {
     Month,
     Day(Date),
+    Settings,
 }
 
 /// The application model stores app-specific state used to describe its
@@ -100,6 +102,16 @@ pub enum Message {
     OpenDay(Date),
     /// A message from the open day view.
     Day(DayMessage),
+    /// Open the settings screen.
+    OpenSettings,
+    /// Leave the settings screen back to the calendar.
+    CloseSettings,
+    /// Step the default reminder time's hour by +/-1 (wraps).
+    SettingsHour(i32),
+    /// Step the default reminder time's minute by +/-1 five-minute slot (wraps).
+    SettingsMinute(i32),
+    /// Step the reminder lead by +/-5 minutes (clamped at 0).
+    SettingsLead(i32),
     PrevMonth,
     NextMonth,
     /// Jump the grid back to the current month.
@@ -188,6 +200,7 @@ impl cosmic::Application for AppModel {
             Screen::Day(date) => {
                 day::view(date, &self.store, &self.draft, self.draft_minute).map(Message::Day)
             }
+            Screen::Settings => self.settings_screen(),
         };
         let content = container(screen)
             .width(Length::Fixed(POPUP_WIDTH))
@@ -301,6 +314,31 @@ impl cosmic::Application for AppModel {
                 return text_input::focus(day::INPUT_ID.clone());
             }
             Message::Day(day_message) => return self.update_day(day_message),
+            Message::OpenSettings => {
+                self.screen = Screen::Settings;
+            }
+            Message::CloseSettings => {
+                self.screen = Screen::Month;
+            }
+            Message::SettingsHour(dir) => {
+                let now = self.settings.default_reminder_minute;
+                let hour = (now / 60) as i32;
+                let minute = now % 60;
+                let hour = (hour + dir).rem_euclid(24) as u16;
+                self.set_default_reminder(hour * 60 + minute);
+            }
+            Message::SettingsMinute(dir) => {
+                let now = self.settings.default_reminder_minute;
+                let hour = now / 60;
+                let slot = (now % 60) as i32 / 5;
+                let slot = (slot + dir).rem_euclid(12);
+                self.set_default_reminder(hour * 60 + (slot as u16) * 5);
+            }
+            Message::SettingsLead(dir) => {
+                let cur = self.settings.reminder_lead_minutes as i32;
+                let next = (cur + dir * 5).clamp(0, 720) as u16;
+                self.set_reminder_lead(next);
+            }
             Message::PrevMonth => {
                 self.visible = month_step(self.visible, -1);
             }
@@ -386,12 +424,130 @@ impl AppModel {
         );
 
         let today_button = button::text(crate::fl!("today")).on_press(Message::ThisMonth);
+        let settings_button = button::text("Settings").on_press(Message::OpenSettings);
 
-        column::with_capacity(3)
+        column::with_capacity(4)
             .push(header)
             .push(grid)
             .push(today_button)
+            .push(settings_button)
             .spacing(spacing.space_s)
+            .align_x(Alignment::Center)
+            .into()
+    }
+
+    /// Persist the default reminder time (minutes since midnight), updating the
+    /// in-memory copy immediately and writing it to Void Watcher's config.
+    fn set_default_reminder(&mut self, minute: u16) {
+        self.settings.default_reminder_minute = minute;
+        if let Some(config) = crate::settings::Settings::config_handle() {
+            let _ = config.set("default_reminder_minute", minute);
+        }
+    }
+
+    /// Persist the reminder lead (minutes before a to-do's time).
+    fn set_reminder_lead(&mut self, minutes: u16) {
+        self.settings.reminder_lead_minutes = minutes;
+        if let Some(config) = crate::settings::Settings::config_handle() {
+            let _ = config.set("reminder_lead_minutes", minutes);
+        }
+    }
+
+    /// The settings screen: a centered "Settings" header with a back button on
+    /// the left, then the default reminder time (a two-stepper picker with no
+    /// clear - it's always a time) and the reminder lead (a +/-5 stepper).
+    fn settings_screen(&self) -> Element<'_, Message> {
+        let spacing = cosmic::theme::active().cosmic().spacing;
+
+        // Header: back button left, "Settings" centered, matched spacer right.
+        let back = button::icon(cosmic::widget::icon::from_name("go-previous-symbolic").size(16))
+            .on_press(Message::CloseSettings);
+        let side = 44.0;
+        let header = row::with_capacity(3)
+            .push(container(back).width(Length::Fixed(side)))
+            .push(
+                container(text("Settings").size(20))
+                    .width(Length::Fill)
+                    .center_x(Length::Fill),
+            )
+            .push(space::horizontal().width(Length::Fixed(side)))
+            .align_y(Alignment::Center);
+
+        // Default reminder time: label + two-stepper (hour, minute) in a pill.
+        let default_time = self.settings.default_reminder_minute;
+        let time_inner = row::with_capacity(5)
+            .push(
+                button::icon(cosmic::widget::icon::from_name("list-remove-symbolic").size(14))
+                    .on_press(Message::SettingsHour(-1)),
+            )
+            .push(
+                button::icon(cosmic::widget::icon::from_name("list-add-symbolic").size(14))
+                    .on_press(Message::SettingsHour(1)),
+            )
+            .push(
+                container(text(day::time_label(Some(default_time))).size(14))
+                    .width(Length::Fixed(84.0))
+                    .center_x(Length::Fixed(84.0)),
+            )
+            .push(
+                button::icon(cosmic::widget::icon::from_name("list-remove-symbolic").size(14))
+                    .on_press(Message::SettingsMinute(-1)),
+            )
+            .push(
+                button::icon(cosmic::widget::icon::from_name("list-add-symbolic").size(14))
+                    .on_press(Message::SettingsMinute(1)),
+            )
+            .spacing(spacing.space_xxs)
+            .align_y(Alignment::Center);
+        let time_pill = container(
+            container(time_inner)
+                .padding([2, 6])
+                .class(pill_class()),
+        )
+        .width(Length::Fill)
+        .center_x(Length::Fill);
+        let time_row = column::with_capacity(2)
+            .push(text("Daily reminder time").size(14))
+            .push(time_pill)
+            .spacing(spacing.space_xxs)
+            .align_x(Alignment::Center);
+
+        // Reminder lead: label + +/-5 stepper showing "N min", in a pill.
+        let lead = self.settings.reminder_lead_minutes;
+        let lead_inner = row::with_capacity(3)
+            .push(
+                button::icon(cosmic::widget::icon::from_name("list-remove-symbolic").size(14))
+                    .on_press(Message::SettingsLead(-1)),
+            )
+            .push(
+                container(text(format!("{lead} min")).size(14))
+                    .width(Length::Fixed(84.0))
+                    .center_x(Length::Fixed(84.0)),
+            )
+            .push(
+                button::icon(cosmic::widget::icon::from_name("list-add-symbolic").size(14))
+                    .on_press(Message::SettingsLead(1)),
+            )
+            .spacing(spacing.space_xxs)
+            .align_y(Alignment::Center);
+        let lead_pill = container(
+            container(lead_inner)
+                .padding([2, 6])
+                .class(pill_class()),
+        )
+        .width(Length::Fill)
+        .center_x(Length::Fill);
+        let lead_row = column::with_capacity(2)
+            .push(text("Remind me this long before").size(14))
+            .push(lead_pill)
+            .spacing(spacing.space_xxs)
+            .align_x(Alignment::Center);
+
+        column::with_capacity(3)
+            .push(header)
+            .push(time_row)
+            .push(lead_row)
+            .spacing(spacing.space_m)
             .align_x(Alignment::Center)
             .into()
     }
@@ -517,6 +673,23 @@ impl AppModel {
             .and_then(|offset| Weekday::from_monday_zero_offset(offset).ok())
             .unwrap_or(Weekday::Sunday)
     }
+}
+
+/// The subtle bordered-pill container class shared by the settings steppers,
+/// matching the day view's time-picker pill. Returns the cosmic container class
+/// (not a whole widget), so it composes without naming generic widget types.
+fn pill_class() -> cosmic::style::Container<'static> {
+    cosmic::style::Container::custom(|t| {
+        let cosmic = t.cosmic();
+        cosmic::iced::widget::container::Style {
+            border: cosmic::iced::Border {
+                radius: cosmic.corner_radii.radius_m.into(),
+                width: 1.0,
+                color: cosmic.palette.neutral_5.into(),
+            },
+            ..Default::default()
+        }
+    })
 }
 
 /// Move `date` by `months` whole months, landing on the 1st so day-of-month
