@@ -21,6 +21,15 @@ use jiff::fmt::strtime;
 use crate::calendar::{self, MonthView};
 use crate::config::{TIME_CONFIG_ID, TimeAppletConfig};
 
+/// The popup's fixed inner size, shared by every screen so switching views
+/// never resizes or repositions the popup. Width is the calendar grid's exact
+/// width (7 cells + 6 gaps). Height is a little over the calendar's natural
+/// stack (three-line header + 6-row grid + Today button + spacing) so the
+/// calendar fills it without clipping and other screens get the same roomy box.
+/// Nudge `POPUP_HEIGHT` if the calendar clips or leaves too much empty space.
+const POPUP_WIDTH: f32 = 380.0;
+const POPUP_HEIGHT: f32 = 490.0;
+
 /// The application model stores app-specific state used to describe its
 /// interface and drive its logic.
 pub struct AppModel {
@@ -128,9 +137,12 @@ impl cosmic::Application for AppModel {
         self.core.applet.autosize_window(content).into()
     }
 
-    /// The popup, showing the month grid.
+    /// The popup, showing the month grid at a fixed size (see POPUP_WIDTH/HEIGHT).
     fn view_window(&self, _id: window::Id) -> Element<'_, Message> {
-        let content = self.month_screen();
+        let content = container(self.month_screen())
+            .width(Length::Fixed(POPUP_WIDTH))
+            .height(Length::Fixed(POPUP_HEIGHT))
+            .padding([0, 4]);
         self.core.applet.popup_container(content).into()
     }
 
@@ -181,10 +193,10 @@ impl cosmic::Application for AppModel {
                         };
 
                         settings.positioner.size_limits = Limits::NONE
-                            .min_width(380.0)
-                            .max_width(380.0)
-                            .min_height(200.0)
-                            .max_height(1080.0);
+                            .min_width(POPUP_WIDTH)
+                            .max_width(POPUP_WIDTH)
+                            .min_height(POPUP_HEIGHT)
+                            .max_height(POPUP_HEIGHT);
                         settings.positioner.size = None;
                         settings
                     },
