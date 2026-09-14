@@ -12,7 +12,7 @@ use cosmic::iced::{Alignment, Length, Limits, Rectangle, Subscription, window};
 use cosmic::widget::rectangle_tracker::{
     RectangleTracker, RectangleUpdate, rectangle_tracker_subscription,
 };
-use cosmic::widget::{Column, button, column, container, row, space, text};
+use cosmic::widget::{Column, button, column, container, row, space, text, text_input};
 use cosmic::{Element, surface};
 use jiff::Zoned;
 use jiff::civil::{Date, Weekday};
@@ -20,6 +20,8 @@ use jiff::fmt::strtime;
 
 use crate::calendar::{self, MonthView};
 use crate::config::{TIME_CONFIG_ID, TimeAppletConfig};
+use crate::day::{self, DayMessage};
+use crate::store::Store;
 
 /// The popup's fixed inner size, shared by every screen so switching views
 /// never resizes or repositions the popup. Width is the calendar grid's exact
@@ -29,6 +31,17 @@ use crate::config::{TIME_CONFIG_ID, TimeAppletConfig};
 /// Nudge `POPUP_HEIGHT` if the calendar clips or leaves too much empty space.
 const POPUP_WIDTH: f32 = 380.0;
 const POPUP_HEIGHT: f32 = 490.0;
+
+/// Which screen the popup is showing: the month grid, or one day's to-do list.
+/// The popup is a single surface that swaps between them, because an applet
+/// can't put a second real window on screen - the panel is a nested compositor
+/// and would swallow any toplevel it opened. A view swap gets the two-pane feel
+/// without fighting that.
+#[derive(Debug, Clone)]
+enum Screen {
+    Month,
+    Day(Date),
+}
 
 /// The application model stores app-specific state used to describe its
 /// interface and drive its logic.
@@ -45,6 +58,16 @@ pub struct AppModel {
     visible: Date,
     /// The day highlighted by a left-click in the grid.
     selected: Option<Date>,
+    /// The to-do entries, loaded once and saved on every edit.
+    store: Store,
+    /// Which screen the popup shows.
+    screen: Screen,
+    /// Text sitting in the day view's add box, held here so the input stays
+    /// controlled across redraws.
+    draft: String,
+    /// Optional hour sitting in the day view's stepper, paired with `draft`.
+    /// Reset with `draft`.
+    draft_hour: Option<u8>,
     /// Handle to the panel's rectangle tracker, delivered once at startup.
     rectangle_tracker: Option<RectangleTracker<u32>>,
     /// The panel button's true on-screen rectangle, reported by the tracker.
@@ -63,6 +86,10 @@ pub enum Message {
     ConfigChanged(TimeAppletConfig),
     /// A day was left-clicked in the grid: highlight it.
     HighlightDay(Date),
+    /// A day was right-clicked in the grid: open its to-do list.
+    OpenDay(Date),
+    /// A message from the open day view.
+    Day(DayMessage),
     PrevMonth,
     NextMonth,
     /// Jump the grid back to the current month.
@@ -93,6 +120,10 @@ impl cosmic::Application for AppModel {
             visible: now.date(),
             now,
             selected: None,
+            store: Store::load(),
+            screen: Screen::Month,
+            draft: String::new(),
+            draft_hour: None,
             rectangle_tracker: None,
             rectangle: Rectangle::default(),
         };
@@ -137,9 +168,16 @@ impl cosmic::Application for AppModel {
         self.core.applet.autosize_window(content).into()
     }
 
-    /// The popup, showing the month grid at a fixed size (see POPUP_WIDTH/HEIGHT).
+    /// The popup, showing whichever screen is current, at a fixed size
+    /// (see POPUP_WIDTH/HEIGHT) so switching views never resizes the popup.
     fn view_window(&self, _id: window::Id) -> Element<'_, Message> {
-        let content = container(self.month_screen())
+        let screen: Element<'_, Message> = match self.screen {
+            Screen::Month => self.month_screen(),
+            Screen::Day(date) => {
+                day::view(date, &self.store, &self.draft, self.draft_hour).map(Message::Day)
+            }
+        };
+        let content = container(screen)
             .width(Length::Fixed(POPUP_WIDTH))
             .height(Length::Fixed(POPUP_HEIGHT))
             .padding([0, 4]);
@@ -163,6 +201,7 @@ impl cosmic::Application for AppModel {
                     return surface::surface_task(surface::action::destroy_popup(id));
                 }
 
+                self.screen = Screen::Month;
                 self.visible = self.now.date();
                 self.selected = None;
 
@@ -226,6 +265,15 @@ impl cosmic::Application for AppModel {
                 self.visible = date;
                 self.selected = Some(date);
             }
+            Message::OpenDay(date) => {
+                self.visible = date;
+                self.selected = Some(date);
+                self.draft.clear();
+                self.draft_hour = None;
+                self.screen = Screen::Day(date);
+                return text_input::focus(day::INPUT_ID.clone());
+            }
+            Message::Day(day_message) => return self.update_day(day_message),
             Message::PrevMonth => {
                 self.visible = month_step(self.visible, -1);
             }
@@ -304,8 +352,10 @@ impl AppModel {
                 today,
                 selected: self.selected,
                 first_weekday: self.first_weekday(),
+                store: &self.store,
             },
             Message::HighlightDay,
+            Message::OpenDay,
         );
 
         let today_button = button::text(crate::fl!("today")).on_press(Message::ThisMonth);
@@ -317,6 +367,42 @@ impl AppModel {
             .spacing(spacing.space_s)
             .align_x(Alignment::Center)
             .into()
+    }
+
+    /// Apply a day-view message to the store or navigate back.
+    fn update_day(&mut self, message: DayMessage) -> Task<Message> {
+        let Screen::Day(date) = self.screen else {
+            return Task::none();
+        };
+        match message {
+            DayMessage::Back => {
+                self.screen = Screen::Month;
+                self.draft.clear();
+                self.draft_hour = None;
+            }
+            DayMessage::Input(text) => {
+                self.draft = text;
+            }
+            DayMessage::HourUp => {
+                self.draft_hour = day::hour_step_up(self.draft_hour);
+            }
+            DayMessage::HourDown => {
+                self.draft_hour = day::hour_step_down(self.draft_hour);
+            }
+            DayMessage::Submit => {
+                let hour = self.draft_hour;
+                self.store.add(date, std::mem::take(&mut self.draft), hour);
+                self.draft_hour = None;
+                return text_input::focus(day::INPUT_ID.clone());
+            }
+            DayMessage::Toggle(index) => {
+                self.store.toggle(date, index);
+            }
+            DayMessage::Delete(index) => {
+                self.store.remove(date, index);
+            }
+        }
+        Task::none()
     }
 
     fn panel_label(&self) -> String {

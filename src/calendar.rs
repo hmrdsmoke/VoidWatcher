@@ -16,6 +16,8 @@ use cosmic::widget::{Grid, button, container, grid, text};
 use cosmic::{Element, theme};
 use jiff::civil::{Date, Weekday};
 
+use crate::store::Store;
+
 
 /// Six rows of seven always covers a month: the longest case is a 31-day month
 /// whose 1st falls on the last column, needing 37 cells → 6 rows.
@@ -23,15 +25,17 @@ const ROWS: usize = 6;
 const COLS: usize = 7;
 
 /// Everything the grid needs to draw itself, so the view code stays declarative.
-pub struct MonthView {
+pub struct MonthView<'a> {
     /// Any day within the month being shown (day-of-month is ignored).
     pub visible: Date,
     /// The real today, drawn with an accent ring.
     pub today: Date,
-    /// The day the user has open, drawn filled — `None` on the month view.
+    /// The day the user has open, drawn filled - `None` on the month view.
     pub selected: Option<Date>,
     /// Which weekday sits in column one, from the user's Date & Time setting.
     pub first_weekday: Weekday,
+    /// To-do data, read only to decide which days get a dot.
+    pub store: &'a Store,
 }
 
 /// One weekday-header + day grid for the visible month.
@@ -41,8 +45,9 @@ pub struct MonthView {
 /// next month are dimmed but still respond, so interacting with the greyed "1"
 /// of next month just carries you there.
 pub fn month<'a, Message: Clone + 'static>(
-    view: MonthView,
+    view: MonthView<'a>,
     on_highlight: impl Fn(Date) -> Message + 'a,
+    on_open: impl Fn(Date) -> Message + 'a,
 ) -> Element<'a, Message> {
     let spacing = theme::active().cosmic().spacing;
 
@@ -80,9 +85,12 @@ pub fn month<'a, Message: Clone + 'static>(
                 in_month,
                 is_today: day == view.today,
                 is_selected: view.selected == Some(day),
-                has_dot: false,
+                has_dot: view.store.has_entries(day),
             };
-            grid = grid.push(day_button(cell, on_highlight(day)));
+            grid = grid.push(
+                cosmic::widget::mouse_area(day_button(cell, on_highlight(day)))
+                    .on_right_press(on_open(day)),
+            );
             day = day
                 .tomorrow()
                 .unwrap_or(day);
