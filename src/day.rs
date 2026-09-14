@@ -87,13 +87,20 @@ pub fn view<'a>(
 ) -> Element<'a, DayMessage> {
     let spacing = theme::active().cosmic().spacing;
 
-    // Header row: back button on the left, "To Do List" title beside it.
+    // Header row: back button on the left, "To Do List" centered. Both side
+    // slots are the SAME fixed width so the centered title sits dead center in
+    // the popup; the back button is centered within its slot.
     let back = button::icon(icon::from_name("go-previous-symbolic").size(16))
         .on_press(DayMessage::Back);
-    let header = row::with_capacity(2)
-        .push(back)
-        .push(text("To Do List").size(20))
-        .spacing(spacing.space_xs)
+    let side = 44.0;
+    let header = row::with_capacity(3)
+        .push(container(back).width(Length::Fixed(side)))
+        .push(
+            container(text("To Do List").size(20))
+                .width(Length::Fill)
+                .center_x(Length::Fill),
+        )
+        .push(cosmic::widget::space::horizontal().width(Length::Fixed(side)))
         .align_y(Alignment::Center);
 
     // Add box.
