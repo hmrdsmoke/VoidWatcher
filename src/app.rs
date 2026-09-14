@@ -69,9 +69,10 @@ pub struct AppModel {
     /// Text sitting in the day view's add box, held here so the input stays
     /// controlled across redraws.
     draft: String,
-    /// Optional hour sitting in the day view's stepper, paired with `draft`.
+    /// Optional time sitting in the day view's picker (minutes since midnight),
+    /// paired with `draft`. `None` = no explicit time (uses the daily default).
     /// Reset with `draft`.
-    draft_hour: Option<u8>,
+    draft_minute: Option<u16>,
     /// The minute (0-59) the reminder check last ran, so it runs once a minute
     /// rather than every one-second tick. `None` until the first check.
     last_reminder_minute: Option<i8>,
@@ -133,7 +134,7 @@ impl cosmic::Application for AppModel {
             store: Store::load(),
             screen: Screen::Month,
             draft: String::new(),
-            draft_hour: None,
+            draft_minute: None,
             last_reminder_minute: None,
             rectangle_tracker: None,
             rectangle: Rectangle::default(),
@@ -185,7 +186,7 @@ impl cosmic::Application for AppModel {
         let screen: Element<'_, Message> = match self.screen {
             Screen::Month => self.month_screen(),
             Screen::Day(date) => {
-                day::view(date, &self.store, &self.draft, self.draft_hour).map(Message::Day)
+                day::view(date, &self.store, &self.draft, self.draft_minute).map(Message::Day)
             }
         };
         let content = container(screen)
@@ -295,7 +296,7 @@ impl cosmic::Application for AppModel {
                 self.visible = date;
                 self.selected = Some(date);
                 self.draft.clear();
-                self.draft_hour = None;
+                self.draft_minute = None;
                 self.screen = Screen::Day(date);
                 return text_input::focus(day::INPUT_ID.clone());
             }
@@ -400,8 +401,12 @@ impl AppModel {
     /// minute from the tick; the store decides what's due (see
     /// `Store::due_reminders`), including reminders missed while off.
     fn fire_due_reminders(&mut self) {
-        for due in self.store.due_reminders(&self.now, self.settings.reminder_lead_minutes) {
-            let body = format!("Due at {}", day::hour_label(Some(due.hour)));
+        for due in self.store.due_reminders(
+            &self.now,
+            self.settings.reminder_lead_minutes,
+            self.settings.default_reminder_minute,
+        ) {
+            let body = format!("Due at {}", day::time_label(Some(due.at_minute)));
             crate::notify::send(&due.text, &body);
             self.store.mark_notified(&due.date, due.index);
         }
@@ -416,21 +421,30 @@ impl AppModel {
             DayMessage::Back => {
                 self.screen = Screen::Month;
                 self.draft.clear();
-                self.draft_hour = None;
+                self.draft_minute = None;
             }
             DayMessage::Input(text) => {
                 self.draft = text;
             }
             DayMessage::HourUp => {
-                self.draft_hour = day::hour_step_up(self.draft_hour);
+                self.draft_minute = day::step_hour(self.draft_minute, 1);
             }
             DayMessage::HourDown => {
-                self.draft_hour = day::hour_step_down(self.draft_hour);
+                self.draft_minute = day::step_hour(self.draft_minute, -1);
+            }
+            DayMessage::MinuteUp => {
+                self.draft_minute = day::step_minute(self.draft_minute, 1);
+            }
+            DayMessage::MinuteDown => {
+                self.draft_minute = day::step_minute(self.draft_minute, -1);
+            }
+            DayMessage::ClearTime => {
+                self.draft_minute = None;
             }
             DayMessage::Submit => {
-                let hour = self.draft_hour;
-                self.store.add(date, std::mem::take(&mut self.draft), hour);
-                self.draft_hour = None;
+                let at_minute = self.draft_minute;
+                self.store.add(date, std::mem::take(&mut self.draft), at_minute);
+                self.draft_minute = None;
                 return text_input::focus(day::INPUT_ID.clone());
             }
             DayMessage::Toggle(index) => {

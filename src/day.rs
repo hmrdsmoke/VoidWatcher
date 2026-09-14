@@ -33,10 +33,14 @@ pub enum DayMessage {
     Back,
     /// The add-box text changed.
     Input(String),
-    /// Step the draft hour up one (None -> 0:00 -> 1:00 -> ... -> 23:00).
+    /// Step the hour up/down by one (wraps 23<->0). From None, starts a time.
     HourUp,
-    /// Step the draft hour down one (... -> 0:00 -> None).
     HourDown,
+    /// Step the minute up/down by 5 (wraps 55<->0). From None, starts a time.
+    MinuteUp,
+    MinuteDown,
+    /// Clear the time back to None (no explicit time; uses the daily default).
+    ClearTime,
     /// Commit the current draft as a new entry.
     Submit,
     /// Toggle the done flag on the entry at this index.
@@ -45,45 +49,62 @@ pub enum DayMessage {
     Delete(usize),
 }
 
-/// Step an optional hour up by one: `None` becomes 0, 23 saturates (stays 23).
-pub fn hour_step_up(hour: Option<u8>) -> Option<u8> {
-    match hour {
-        None => Some(0),
-        Some(h) if h < 23 => Some(h + 1),
-        Some(_) => Some(23),
-    }
+/// Minutes a new time starts at when stepping up from `None`. 9:00 AM.
+const START_MINUTE: u16 = 540;
+
+/// Step the hour part of a time by `dir` (+1 or -1), keeping the minute part,
+/// wrapping 23<->0. `None` starts a time at `START_MINUTE` (either direction),
+/// so a first press gives you something to adjust rather than doing nothing.
+pub fn step_hour(at: Option<u16>, dir: i32) -> Option<u16> {
+    let Some(m) = at else {
+        return Some(START_MINUTE);
+    };
+    let hour = (m / 60) as i32;
+    let minute = m % 60;
+    let hour = (hour + dir).rem_euclid(24) as u16;
+    Some(hour * 60 + minute)
 }
 
-/// Step an optional hour down by one: 0 becomes `None`, `None` stays `None`.
-pub fn hour_step_down(hour: Option<u8>) -> Option<u8> {
-    match hour {
-        None => None,
-        Some(0) => None,
-        Some(h) => Some(h - 1),
-    }
+/// Step the minute part of a time by `dir` (+1 or -1) in 5-minute increments,
+/// keeping the hour part, wrapping 55<->0. `None` starts a time at
+/// `START_MINUTE`.
+pub fn step_minute(at: Option<u16>, dir: i32) -> Option<u16> {
+    let Some(m) = at else {
+        return Some(START_MINUTE);
+    };
+    let hour = m / 60;
+    let minute = (m % 60) as i32;
+    // Round to the current 5-min slot, then step. rem_euclid keeps 0..=55.
+    let slot = minute / 5;
+    let slot = (slot + dir).rem_euclid(12);
+    Some(hour * 60 + (slot as u16) * 5)
 }
 
-/// Human label for an hour value. `None` reads "None"; a set hour reads as a
-/// 12-hour clock time like "2:00 PM", built via jiff so it matches the rest of
-/// the UI. Falls back to a bare "H:00" only if the hour is out of range.
-pub fn hour_label(hour: Option<u8>) -> String {
-    match hour {
+/// Human label for a time given as minutes since midnight. `None` reads
+/// "None"; a set time reads as a 12-hour clock like "2:30 PM", built via jiff so
+/// it matches the rest of the UI. Falls back to a bare "H:MM" if out of range.
+pub fn time_label(at: Option<u16>) -> String {
+    match at {
         None => "None".to_owned(),
-        Some(h) => match jiff::civil::Time::new(h as i8, 0, 0, 0) {
-            Ok(t) => jiff::fmt::strtime::format("%-I:%M %p", t)
-                .unwrap_or_else(|_| format!("{h}:00")),
-            Err(_) => format!("{h}:00"),
-        },
+        Some(m) => {
+            let hour = (m / 60) as i8;
+            let minute = (m % 60) as i8;
+            match jiff::civil::Time::new(hour, minute, 0, 0) {
+                Ok(t) => jiff::fmt::strtime::format("%-I:%M %p", t)
+                    .unwrap_or_else(|_| format!("{hour}:{minute:02}")),
+                Err(_) => format!("{hour}:{minute:02}"),
+            }
+        }
     }
 }
 
 /// Build the day view for `date`, reading entries from `store` and showing
-/// `draft` in the add box with `draft_hour` in the stepper.
+/// `draft` in the add box with `draft_minute` in the time picker.
 pub fn view<'a>(
     date: Date,
     store: &'a Store,
     draft: &'a str,
-    draft_hour: Option<u8>,
+    draft_minute: Option<u16>,
 ) -> Element<'a, DayMessage> {
     let spacing = theme::active().cosmic().spacing;
 
@@ -110,22 +131,35 @@ pub fn view<'a>(
         .on_submit(|_| DayMessage::Submit)
         .width(Length::Fill);
 
-    // -/+ hour stepper, styled as one compact control: minus, a fixed-width
-    // value, plus, grouped tight inside a subtle bordered pill and centered in
-    // the row rather than stretched edge to edge. The fixed value width keeps
-    // the pill from jumping as the label swaps between "None" and a clock time.
-    let minus = button::icon(icon::from_name("list-remove-symbolic").size(16))
+    // Time picker, styled as one compact control inside a bordered pill: an
+    // hour stepper and a minute stepper (each a -/value/+ group) with a clear
+    // button, centered in the row. The value shows "None" until a step sets a
+    // time; the fixed value width keeps the pill from jumping as it changes.
+    let hour_minus = button::icon(icon::from_name("list-remove-symbolic").size(14))
         .on_press(DayMessage::HourDown);
-    let plus = button::icon(icon::from_name("list-add-symbolic").size(16))
+    let hour_plus = button::icon(icon::from_name("list-add-symbolic").size(14))
         .on_press(DayMessage::HourUp);
-    let stepper_inner = row::with_capacity(3)
-        .push(minus)
+    let minute_minus = button::icon(icon::from_name("list-remove-symbolic").size(14))
+        .on_press(DayMessage::MinuteDown);
+    let minute_plus = button::icon(icon::from_name("list-add-symbolic").size(14))
+        .on_press(DayMessage::MinuteUp);
+    let clear = button::icon(icon::from_name("edit-clear-symbolic").size(14))
+        .on_press(DayMessage::ClearTime);
+
+    // The two steppers share one value label (the whole time reads together, so
+    // "None" and "2:30 PM" both make sense) flanked by hour controls on the
+    // left and minute controls on the right.
+    let stepper_inner = row::with_capacity(6)
+        .push(hour_minus)
+        .push(hour_plus)
         .push(
-            container(text(hour_label(draft_hour)).size(14))
-                .width(Length::Fixed(96.0))
-                .center_x(Length::Fixed(96.0)),
+            container(text(time_label(draft_minute)).size(14))
+                .width(Length::Fixed(84.0))
+                .center_x(Length::Fixed(84.0)),
         )
-        .push(plus)
+        .push(minute_minus)
+        .push(minute_plus)
+        .push(clear)
         .spacing(spacing.space_xxs)
         .align_y(Alignment::Center);
     let stepper_pill = container(stepper_inner)
@@ -169,7 +203,7 @@ pub fn view<'a>(
         );
     } else {
         for (index, entry) in entries.iter().enumerate() {
-            list = list.push(entry_row(index, &entry.text, entry.done, entry.hour));
+            list = list.push(entry_row(index, &entry.text, entry.done, entry.at_minute));
         }
     }
 
@@ -190,7 +224,7 @@ fn entry_row<'a>(
     index: usize,
     label: &'a str,
     done: bool,
-    hour: Option<u8>,
+    at_minute: Option<u16>,
 ) -> Element<'a, DayMessage> {
     let spacing = theme::active().cosmic().spacing;
 
@@ -210,9 +244,9 @@ fn entry_row<'a>(
 
     let mut r = row::with_capacity(4).push(check).push(text_widget);
 
-    if hour.is_some() {
+    if at_minute.is_some() {
         r = r.push(
-            text(hour_label(hour))
+            text(time_label(at_minute))
                 .size(12)
                 .class(cosmic::style::Text::Custom(|t| {
                     cosmic::iced::widget::text::Style {

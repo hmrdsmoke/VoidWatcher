@@ -24,11 +24,11 @@ pub struct Entry {
     /// Ticked off or not.
     #[serde(default)]
     pub done: bool,
-    /// Optional whole-hour (0-23) this to-do is "due" at. `None` means no time
-    /// and no reminder. The reminder fires 30 minutes before this hour (see
-    /// `due_reminders`).
+    /// Optional time this to-do is "due" at, as minutes since midnight
+    /// (0-1439). `None` means no time and no reminder. The reminder fires a
+    /// configurable lead before this time (see `due_reminders`).
     #[serde(default)]
-    pub hour: Option<u8>,
+    pub at_minute: Option<u16>,
     /// Whether this entry's reminder has already been sent. Persisted so a
     /// reboot doesn't re-fire everything - once true, it never notifies again.
     #[serde(default)]
@@ -36,11 +36,11 @@ pub struct Entry {
 }
 
 impl Entry {
-    fn new(text: String, hour: Option<u8>) -> Self {
+    fn new(text: String, at_minute: Option<u16>) -> Self {
         Self {
             text,
             done: false,
-            hour,
+            at_minute,
             notified: false,
         }
     }
@@ -56,8 +56,8 @@ pub struct DueReminder {
     pub index: usize,
     /// The entry's text, for the notification body.
     pub text: String,
-    /// The hour the entry is due at (0-23), for the notification body.
-    pub hour: u8,
+    /// The time the entry is due at (minutes since midnight), for the body.
+    pub at_minute: u16,
 }
 
 /// Every day's entries, keyed by ISO date string ("2026-09-13").
@@ -120,9 +120,10 @@ impl Store {
         self.days.get(&date.to_string()).is_some_and(|v| !v.is_empty())
     }
 
-    /// Add a line to a day, optionally tagged with a whole hour. Blank input is
-    /// ignored so an empty text box plus Enter doesn't create a phantom entry.
-    pub fn add(&mut self, date: Date, text: String, hour: Option<u8>) {
+    /// Add a line to a day, optionally tagged with a time (minutes since
+    /// midnight). Blank input is ignored so an empty text box plus Enter
+    /// doesn't create a phantom entry.
+    pub fn add(&mut self, date: Date, text: String, at_minute: Option<u16>) {
         let text = text.trim();
         if text.is_empty() {
             return;
@@ -130,7 +131,7 @@ impl Store {
         self.days
             .entry(date.to_string())
             .or_default()
-            .push(Entry::new(text.to_owned(), hour));
+            .push(Entry::new(text.to_owned(), at_minute));
         self.save();
     }
 
@@ -161,12 +162,18 @@ impl Store {
         }
     }
 
-    /// Every reminder ready to fire as of `now`: an entry with an hour, not
-    /// done, not yet notified, whose reminder moment (30 min before the hour)
-    /// has arrived. No upper bound - a moment that passed while the machine was
-    /// off still fires the next check (behavior A). Firing once is enforced by
-    /// `notified`, set via `mark_notified` after the notification goes out.
-    pub fn due_reminders(&self, now: &jiff::Zoned, lead_minutes: u16) -> Vec<DueReminder> {
+    /// Every reminder ready to fire as of `now`: an entry not done, not yet
+    /// notified, whose reminder moment has arrived. The moment is `lead_minutes`
+    /// before the entry's time - its explicit `at_minute`, or `default_minute`
+    /// when it has none. No upper bound: a moment that passed while the machine
+    /// was off still fires the next check (behavior A). Firing once is enforced
+    /// by `notified`, set via `mark_notified` after the notification goes out.
+    pub fn due_reminders(
+        &self,
+        now: &jiff::Zoned,
+        lead_minutes: u16,
+        default_minute: u16,
+    ) -> Vec<DueReminder> {
         let today = now.date();
         let mut out = Vec::new();
         for (key, entries) in &self.days {
@@ -180,15 +187,15 @@ impl Store {
                 if entry.notified || entry.done {
                     continue;
                 }
-                let Some(hour) = entry.hour else {
-                    continue;
-                };
-                if reminder_reached(now, date, hour, lead_minutes) {
+                // A None entry has no explicit time, so it fires at the daily
+                // default; an explicit time (including 0 = midnight) fires then.
+                let at_minute = entry.at_minute.unwrap_or(default_minute);
+                if reminder_reached(now, date, at_minute, lead_minutes) {
                     out.push(DueReminder {
                         date: key.clone(),
                         index,
                         text: entry.text.clone(),
-                        hour,
+                        at_minute,
                     });
                 }
             }
@@ -210,13 +217,15 @@ impl Store {
     }
 }
 
-/// Whether `now` has reached the reminder moment for an entry due at `hour` on
-/// `date` - 30 minutes before `hour:00`. Built in `now`'s time zone with
-/// checked arithmetic; anything unbuildable yields "not reached" rather than
-/// firing spuriously or panicking the panel.
-fn reminder_reached(now: &jiff::Zoned, date: Date, hour: u8, lead_minutes: u16) -> bool {
+/// Whether `now` has reached the reminder moment for an entry due at
+/// `at_minute` (minutes since midnight) on `date` - `lead_minutes` before that
+/// time. Built in `now`'s time zone with checked arithmetic; anything
+/// unbuildable yields "not reached" rather than firing spuriously or panicking.
+fn reminder_reached(now: &jiff::Zoned, date: Date, at_minute: u16, lead_minutes: u16) -> bool {
     use jiff::ToSpan;
-    let due_civil = date.at(hour as i8, 0, 0, 0);
+    let hour = (at_minute / 60) as i8;
+    let minute = (at_minute % 60) as i8;
+    let due_civil = date.at(hour, minute, 0, 0);
     let Ok(due_zoned) = due_civil.to_zoned(now.time_zone().clone()) else {
         return false;
     };
