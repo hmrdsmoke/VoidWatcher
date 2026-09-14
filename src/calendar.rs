@@ -8,11 +8,11 @@
 // This is Void Watcher's own grid rather than libcosmic's `calendar` widget,
 // because the built-in one can't do the two things this applet is about:
 // mark days that have to-dos, and open a day on click. So the grid is built
-// by hand out of a `grid` of day cells, each a `mouse_area` over a styled
-// container. Layout is the only real work; jiff does all the date arithmetic.
+// by hand out of a `grid` of day cells, each a `button` tile that highlights
+// on hover. Layout is the only real work; jiff does all the date arithmetic.
 
 use cosmic::iced::{Alignment, Background, Border, Length};
-use cosmic::widget::{Grid, container, grid, mouse_area, text};
+use cosmic::widget::{Grid, button, container, grid, text};
 use cosmic::{Element, theme};
 use jiff::civil::{Date, Weekday};
 
@@ -75,17 +75,14 @@ pub fn month<'a, Message: Clone + 'static>(
         for _ in 0..COLS {
             let in_month = day.month() == view.visible.month()
                 && day.year() == view.visible.year();
-            let cell = day_cell(DayCell {
+            let cell = DayCell {
                 date: day,
                 in_month,
                 is_today: day == view.today,
                 is_selected: view.selected == Some(day),
                 has_dot: false,
-            });
-            grid = grid.push(
-                mouse_area(cell)
-                    .on_press(on_highlight(day)),
-            );
+            };
+            grid = grid.push(day_button(cell, on_highlight(day)));
             day = day
                 .tomorrow()
                 .unwrap_or(day);
@@ -122,9 +119,16 @@ fn weekday_heading<'a, Message: 'a>(label: &'static str) -> Element<'a, Message>
 /// without crowding.
 const CELL: f32 = 48.0;
 
-/// One day box: the number, a dot underneath if there are to-dos, tinted for
-/// today / the open day / off-month days.
-fn day_cell<'a, Message: 'a>(cell: DayCell) -> Element<'a, Message> {
+/// One day as a clickable button tile: the number with a marker slot beneath,
+/// wrapped in a `button::custom` so it gets real hover and press feedback. The
+/// background/ring for today and the selected day live in the button's state
+/// closures (see `day_button_class`); the number's *text* color still rides on
+/// the text widget, since off-month muting depends on data the button class
+/// doesn't see.
+fn day_button<'a, Message: Clone + 'a>(
+    cell: DayCell,
+    on_press: Message,
+) -> Element<'a, Message> {
     let number = text(cell.date.day().to_string()).size(14).class(number_style(&cell));
 
     // A tiny filled circle, or an equal-sized spacer when there's nothing, so
@@ -160,12 +164,12 @@ fn day_cell<'a, Message: 'a>(cell: DayCell) -> Element<'a, Message> {
         .spacing(2)
         .align_x(Alignment::Center);
 
-    container(inner)
+    button::custom(inner)
         .width(Length::Fixed(CELL))
         .height(Length::Fixed(CELL))
-        .center_x(Length::Fixed(CELL))
-        .center_y(Length::Fixed(CELL))
-        .class(cell_style(&cell))
+        .padding(0)
+        .on_press(on_press)
+        .class(day_button_class(&cell))
         .into()
 }
 
@@ -189,33 +193,86 @@ fn number_style(cell: &DayCell) -> cosmic::style::Text {
     cosmic::style::Text::Color(color.into())
 }
 
-/// Cell background/ring: filled accent for the open day, a soft hover-tinted
-/// ring for today, transparent otherwise.
-fn cell_style(cell: &DayCell) -> cosmic::style::Container<'static> {
+/// The button styling for a day tile, across its interaction states.
+///
+/// Selected day: filled accent in every state. Today: an accent ring. A plain
+/// day: transparent at rest, a subtle neutral wash on hover and a slightly
+/// stronger one when pressed — the understated "tile" feel. The `selected`
+/// flag the closures receive is unused here because selection is baked into the
+/// cell we captured; today/selected are read off the captured `DayCell`.
+fn day_button_class(cell: &DayCell) -> cosmic::theme::Button {
     let is_today = cell.is_today;
     let is_selected = cell.is_selected;
-    cosmic::style::Container::custom(move |t| {
-        let cosmic = t.cosmic();
-        let radius = cosmic.corner_radii.radius_s;
-        if is_selected {
-            cosmic::iced::widget::container::Style {
-                background: Some(Background::Color(cosmic.accent_color().into())),
-                border: Border { radius: radius.into(), ..Default::default() },
-                ..Default::default()
+
+    cosmic::theme::Button::Custom {
+        active: Box::new(move |_selected, t| {
+            let cosmic = t.cosmic();
+            if is_selected {
+                cosmic::widget::button::Style {
+                    background: Some(Background::Color(cosmic.accent_color().into())),
+                    border_radius: cosmic.corner_radii.radius_s.into(),
+                    ..Default::default()
+                }
+            } else if is_today {
+                cosmic::widget::button::Style {
+                    border_radius: cosmic.corner_radii.radius_s.into(),
+                    border_width: 1.0,
+                    border_color: cosmic.accent_color().into(),
+                    ..Default::default()
+                }
+            } else {
+                cosmic::widget::button::Style {
+                    border_radius: cosmic.corner_radii.radius_s.into(),
+                    ..Default::default()
+                }
             }
-        } else if is_today {
-            cosmic::iced::widget::container::Style {
-                border: Border {
-                    radius: radius.into(),
-                    width: 1.0,
-                    color: cosmic.accent_color().into(),
-                },
-                ..Default::default()
+        }),
+        hovered: Box::new(move |_selected, t| {
+            let cosmic = t.cosmic();
+            // Subtle neutral wash. Selected keeps its accent fill; today keeps
+            // its ring on top of the wash.
+            // Srgba has a public `alpha` field; struct-update avoids needing
+            // the palette WithAlpha trait in scope.
+            let bg = cosmic::iced::Color::from(cosmic.palette.neutral_4);
+            let bg = cosmic::iced::Color { a: 0.35, ..bg };
+            if is_selected {
+                cosmic::widget::button::Style {
+                    background: Some(Background::Color(cosmic.accent_color().into())),
+                    border_radius: cosmic.corner_radii.radius_s.into(),
+                    ..Default::default()
+                }
+            } else {
+                cosmic::widget::button::Style {
+                    background: Some(Background::Color(bg)),
+                    border_radius: cosmic.corner_radii.radius_s.into(),
+                    border_width: if is_today { 1.0 } else { 0.0 },
+                    border_color: cosmic.accent_color().into(),
+                    ..Default::default()
+                }
             }
-        } else {
-            cosmic::iced::widget::container::Style::default()
-        }
-    })
+        }),
+        pressed: Box::new(move |_selected, t| {
+            let cosmic = t.cosmic();
+            let bg = cosmic::iced::Color::from(cosmic.palette.neutral_5);
+            let bg = cosmic::iced::Color { a: 0.45, ..bg };
+            if is_selected {
+                cosmic::widget::button::Style {
+                    background: Some(Background::Color(cosmic.accent_color().into())),
+                    border_radius: cosmic.corner_radii.radius_s.into(),
+                    ..Default::default()
+                }
+            } else {
+                cosmic::widget::button::Style {
+                    background: Some(Background::Color(bg)),
+                    border_radius: cosmic.corner_radii.radius_s.into(),
+                    border_width: if is_today { 1.0 } else { 0.0 },
+                    border_color: cosmic.accent_color().into(),
+                    ..Default::default()
+                }
+            }
+        }),
+        disabled: Box::new(|_t| cosmic::widget::button::Style::default()),
+    }
 }
 
 /// Three-letter weekday abbreviation for the header row. The order still comes
