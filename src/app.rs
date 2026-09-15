@@ -32,7 +32,7 @@ use crate::store::Store;
 /// calendar fills it without clipping and other screens get the same roomy box.
 /// Nudge `POPUP_HEIGHT` if the calendar clips or leaves too much empty space.
 const POPUP_WIDTH: f32 = 380.0;
-const POPUP_HEIGHT: f32 = 490.0;
+const POPUP_HEIGHT: f32 = 520.0;
 
 /// Which screen the popup is showing: the month grid, or one day's to-do list.
 /// The popup is a single surface that swaps between them, because an applet
@@ -427,9 +427,14 @@ impl AppModel {
         let today_button = button::text(crate::fl!("today")).on_press(Message::ThisMonth);
         let settings_button = button::text("Settings").on_press(Message::OpenSettings);
 
+        // Header pinned top, buttons pinned bottom, grid fills the middle. The
+        // month grid is a fixed six rows tall; stacking everything at natural
+        // height pushed the Settings button past the popup's fixed bottom edge.
+        // Letting the grid area flex keeps both buttons on-screen regardless of
+        // the active theme's spacing.
         column::with_capacity(4)
             .push(header)
-            .push(grid)
+            .push(container(grid).height(Length::Fill).center_y(Length::Fill))
             .push(today_button)
             .push(settings_button)
             .spacing(spacing.space_s)
