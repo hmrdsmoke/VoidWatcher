@@ -80,19 +80,22 @@ pub fn step_minute(at: Option<u16>, dir: i32) -> Option<u16> {
     Some(hour * 60 + (slot as u16) * 5)
 }
 
-/// Human label for a time given as minutes since midnight. `None` reads
-/// "None"; a set time reads as a 12-hour clock like "2:30 PM", built via jiff so
-/// it matches the rest of the UI. Falls back to a bare "H:MM" if out of range.
-pub fn time_label(at: Option<u16>) -> String {
+/// Human label for a time given as minutes since midnight, honoring the user's
+/// 12/24-hour setting (`military`). `None` reads "None". 24-hour reads like
+/// "13:30" / "00:00"; 12-hour reads like "1:30 PM" / "12:00 AM". Built via jiff
+/// so it matches the panel clock; falls back to a zero-padded 24-hour "HH:MM"
+/// only if the time can't be built.
+pub fn time_label(at: Option<u16>, military: bool) -> String {
     match at {
         None => "None".to_owned(),
         Some(m) => {
             let hour = (m / 60) as i8;
             let minute = (m % 60) as i8;
+            let fmt = if military { "%H:%M" } else { "%-I:%M %p" };
             match jiff::civil::Time::new(hour, minute, 0, 0) {
-                Ok(t) => jiff::fmt::strtime::format("%-I:%M %p", t)
-                    .unwrap_or_else(|_| format!("{hour}:{minute:02}")),
-                Err(_) => format!("{hour}:{minute:02}"),
+                Ok(t) => jiff::fmt::strtime::format(fmt, t)
+                    .unwrap_or_else(|_| format!("{hour:02}:{minute:02}")),
+                Err(_) => format!("{hour:02}:{minute:02}"),
             }
         }
     }
@@ -105,6 +108,7 @@ pub fn view<'a>(
     store: &'a Store,
     draft: &'a str,
     draft_minute: Option<u16>,
+    military: bool,
 ) -> Element<'a, DayMessage> {
     let spacing = theme::active().cosmic().spacing;
 
@@ -153,7 +157,7 @@ pub fn view<'a>(
         .push(hour_minus)
         .push(hour_plus)
         .push(
-            container(text(time_label(draft_minute)).size(14))
+            container(text(time_label(draft_minute, military)).size(14))
                 .width(Length::Fixed(84.0))
                 .center_x(Length::Fixed(84.0)),
         )
@@ -203,7 +207,7 @@ pub fn view<'a>(
         );
     } else {
         for (index, entry) in entries.iter().enumerate() {
-            list = list.push(entry_row(index, &entry.text, entry.done, entry.at_minute));
+            list = list.push(entry_row(index, &entry.text, entry.done, entry.at_minute, military));
         }
     }
 
@@ -225,6 +229,7 @@ fn entry_row<'a>(
     label: &'a str,
     done: bool,
     at_minute: Option<u16>,
+    military: bool,
 ) -> Element<'a, DayMessage> {
     let spacing = theme::active().cosmic().spacing;
 
@@ -246,7 +251,7 @@ fn entry_row<'a>(
 
     if at_minute.is_some() {
         r = r.push(
-            text(time_label(at_minute))
+            text(time_label(at_minute, military))
                 .size(12)
                 .class(cosmic::style::Text::Custom(|t| {
                     cosmic::iced::widget::text::Style {

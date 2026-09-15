@@ -198,7 +198,8 @@ impl cosmic::Application for AppModel {
         let screen: Element<'_, Message> = match self.screen {
             Screen::Month => self.month_screen(),
             Screen::Day(date) => {
-                day::view(date, &self.store, &self.draft, self.draft_minute).map(Message::Day)
+                day::view(date, &self.store, &self.draft, self.draft_minute, self.config.military_time)
+                    .map(Message::Day)
             }
             Screen::Settings => self.settings_screen(),
         };
@@ -485,7 +486,7 @@ impl AppModel {
                     .on_press(Message::SettingsHour(1)),
             )
             .push(
-                container(text(day::time_label(Some(default_time))).size(14))
+                container(text(day::time_label(Some(default_time), self.config.military_time)).size(14))
                     .width(Length::Fixed(84.0))
                     .center_x(Length::Fixed(84.0)),
             )
@@ -562,7 +563,10 @@ impl AppModel {
             self.settings.reminder_lead_minutes,
             self.settings.default_reminder_minute,
         ) {
-            let body = format!("Due at {}", day::time_label(Some(due.at_minute)));
+            let body = format!(
+                "Due at {}",
+                day::time_label(Some(due.at_minute), self.config.military_time)
+            );
             crate::notify::send(&due.text, &body);
             self.store.mark_notified(&due.date, due.index);
         }
