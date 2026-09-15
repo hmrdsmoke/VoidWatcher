@@ -72,3 +72,15 @@ debug         = false
 # libcosmic     = { path = "../libcosmic" }
 # cosmic-config = { path = "../libcosmic/cosmic-config" }
 # cosmic-theme  = { path = "../libcosmic/cosmic-theme" }
+
+
+# ── Offline-flatpak fix: vendor the two unpinnable cosmic-panel crates ─────────
+# cosmic-panel-config (pulled by libcosmic's `applet` feature) depends on
+# cosmic-config via a BARE git URL — no rev — which resolves to floating HEAD and
+# drags a second libcosmic rev into the tree, breaking offline vendoring and
+# builds. Same fix as Soulless-Launcher: patch cosmic-panel (a DIFFERENT repo, so
+# cargo allows it) onto local vendored copies whose cosmic-config is pinned to our
+# libcosmic rev. Collapses the tree to a single libcosmic (fc5debcc).
+[patch.'https://github.com/pop-os/cosmic-panel']
+cosmic-panel-config = { path = "vendor/cosmic-panel-config" }
+xdg-shell-wrapper-config = { path = "vendor/xdg-shell-wrapper-config" }
