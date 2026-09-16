@@ -23,7 +23,7 @@ use crate::config::{TIME_CONFIG_ID, TimeAppletConfig};
 use crate::settings::Settings;
 use cosmic::cosmic_config::ConfigSet;
 use crate::day::{self, DayMessage};
-use crate::store::Store;
+use crate::store::{Repeat, Store};
 
 /// The popup's fixed inner size, shared by every screen so switching views
 /// never resizes or repositions the popup. Width is the calendar grid's exact
@@ -75,6 +75,9 @@ pub struct AppModel {
     /// paired with `draft`. `None` = no explicit time (uses the daily default).
     /// Reset with `draft`.
     draft_minute: Option<u16>,
+    /// The repeat rule sitting in the day view's picker, paired with `draft`.
+    /// `Repeat::None` = a one-off. Reset with `draft`.
+    draft_repeat: Repeat,
     /// The minute (0-59) the reminder check last ran, so it runs once a minute
     /// rather than every one-second tick. `None` until the first check.
     last_reminder_minute: Option<i8>,
@@ -147,6 +150,7 @@ impl cosmic::Application for AppModel {
             screen: Screen::Month,
             draft: String::new(),
             draft_minute: None,
+            draft_repeat: Repeat::None,
             last_reminder_minute: None,
             rectangle_tracker: None,
             rectangle: Rectangle::default(),
@@ -198,8 +202,15 @@ impl cosmic::Application for AppModel {
         let screen: Element<'_, Message> = match self.screen {
             Screen::Month => self.month_screen(),
             Screen::Day(date) => {
-                day::view(date, &self.store, &self.draft, self.draft_minute, self.config.military_time)
-                    .map(Message::Day)
+                day::view(
+                    date,
+                    &self.store,
+                    &self.draft,
+                    self.draft_minute,
+                    self.draft_repeat,
+                    self.config.military_time,
+                )
+                .map(Message::Day)
             }
             Screen::Settings => self.settings_screen(),
         };
@@ -311,6 +322,7 @@ impl cosmic::Application for AppModel {
                 self.selected = Some(date);
                 self.draft.clear();
                 self.draft_minute = None;
+                self.draft_repeat = Repeat::None;
                 self.screen = Screen::Day(date);
                 return text_input::focus(day::INPUT_ID.clone());
             }
@@ -427,13 +439,20 @@ impl AppModel {
         let today_button = button::text(crate::fl!("today")).on_press(Message::ThisMonth);
         let settings_button = button::text("Settings").on_press(Message::OpenSettings);
 
+        // The month being browsed, always shown so navigating months is legible
+        // without having to click a day. Tracks `visible` (the grid on screen),
+        // not the selected day - that's the whole point, since the header's
+        // date line follows the selection, not the navigation.
+        let month_label = strtime::format("%B %Y", self.visible).unwrap_or_default();
+
         // Header pinned top, buttons pinned bottom, grid fills the middle. The
         // month grid is a fixed six rows tall; stacking everything at natural
         // height pushed the Settings button past the popup's fixed bottom edge.
         // Letting the grid area flex keeps both buttons on-screen regardless of
         // the active theme's spacing.
-        column::with_capacity(4)
+        column::with_capacity(5)
             .push(header)
+            .push(text(month_label).size(14))
             .push(container(grid).height(Length::Fill).center_y(Length::Fill))
             .push(today_button)
             .push(settings_button)
@@ -573,7 +592,8 @@ impl AppModel {
                 day::time_label(Some(due.at_minute), self.config.military_time)
             );
             crate::notify::send(&due.text, &body);
-            self.store.mark_notified(&due.date, due.index);
+            self.store
+                .mark_notified(&due.date, due.index, &due.occurrence);
         }
     }
 
@@ -587,6 +607,7 @@ impl AppModel {
                 self.screen = Screen::Month;
                 self.draft.clear();
                 self.draft_minute = None;
+                self.draft_repeat = Repeat::None;
             }
             DayMessage::Input(text) => {
                 self.draft = text;
@@ -606,17 +627,37 @@ impl AppModel {
             DayMessage::ClearTime => {
                 self.draft_minute = None;
             }
+            DayMessage::CycleRepeat => {
+                self.draft_repeat = self.draft_repeat.next();
+            }
             DayMessage::Submit => {
                 let at_minute = self.draft_minute;
-                self.store.add(date, std::mem::take(&mut self.draft), at_minute);
+                let repeat = self.draft_repeat;
+                self.store
+                    .add(date, std::mem::take(&mut self.draft), at_minute, repeat);
                 self.draft_minute = None;
+                self.draft_repeat = Repeat::None;
                 return text_input::focus(day::INPUT_ID.clone());
             }
-            DayMessage::Toggle(index) => {
-                self.store.toggle(date, index);
+            // Toggle/Delete carry the row's position in the EXPANDED day list
+            // (see day::view). A row may be a recurring item anchored on another
+            // day, so resolve the row back to its source entry before mutating:
+            // `source_date` is the entry's map key, `source_index` its slot
+            // there, and `date` (the day being viewed) is the occurrence that
+            // per-day completion keys on.
+            DayMessage::Toggle(row) => {
+                if let Some(item) = self.store.day(date).get(row) {
+                    if let Ok(anchor) = item.source_date.parse::<Date>() {
+                        self.store.toggle(anchor, item.source_index, date);
+                    }
+                }
             }
-            DayMessage::Delete(index) => {
-                self.store.remove(date, index);
+            DayMessage::Delete(row) => {
+                if let Some(item) = self.store.day(date).get(row) {
+                    if let Ok(anchor) = item.source_date.parse::<Date>() {
+                        self.store.remove(anchor, item.source_index);
+                    }
+                }
             }
         }
         Task::none()

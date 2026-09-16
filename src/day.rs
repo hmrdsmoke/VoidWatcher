@@ -7,10 +7,16 @@
 //
 // Reached by right-clicking a day in the month grid. Layout, top to bottom:
 // a header row ("To Do List" with a back button on the left), a text box to
-// add an item, a -/+ stepper that tags the new item with an hour (or "None"),
-// an Add button, then the day's existing items as checkbox / text / time /
-// delete rows. Builds widgets only - every edit goes back to the app as a
-// message, which mutates the Store.
+// add an item, a picker row (a -/+ time stepper and a tap-to-advance repeat
+// pill), an Add button, then the day's existing items as checkbox / text /
+// time / repeat-glyph / delete rows. Builds widgets only - every edit goes back
+// to the app as a message, which mutates the Store.
+//
+// Recurrence (v2): the picker gained a repeat pill (Once/Daily/Weekly/Yearly)
+// that cycles on tap, matching the hand-built stepper style. Rows for recurring
+// items show a small repeat glyph. Because a day now shows items that may be
+// anchored on other days (expand-on-read), each row's Toggle/Delete carries its
+// position in the expanded list; the app maps that back to the source entry.
 
 use std::sync::LazyLock;
 
@@ -19,7 +25,7 @@ use cosmic::widget::{button, checkbox, column, container, icon, row, text, text_
 use cosmic::{Element, theme};
 use jiff::civil::Date;
 
-use crate::store::Store;
+use crate::store::{Repeat, Store};
 
 /// Stable id for the "add" box, so the app can focus it when the day opens.
 pub static INPUT_ID: LazyLock<cosmic::widget::Id> =
@@ -41,11 +47,13 @@ pub enum DayMessage {
     MinuteDown,
     /// Clear the time back to None (no explicit time; uses the daily default).
     ClearTime,
+    /// Advance the draft repeat rule (Once -> Daily -> Weekly -> Yearly -> Once).
+    CycleRepeat,
     /// Commit the current draft as a new entry.
     Submit,
-    /// Toggle the done flag on the entry at this index.
+    /// Toggle the done flag for the occurrence at this row.
     Toggle(usize),
-    /// Delete the entry at this index.
+    /// Delete the entry backing this row (whole series if it recurs).
     Delete(usize),
 }
 
@@ -102,12 +110,14 @@ pub fn time_label(at: Option<u16>, military: bool) -> String {
 }
 
 /// Build the day view for `date`, reading entries from `store` and showing
-/// `draft` in the add box with `draft_minute` in the time picker.
+/// `draft` in the add box with `draft_minute` in the time picker and
+/// `draft_repeat` in the repeat pill.
 pub fn view<'a>(
     date: Date,
     store: &'a Store,
     draft: &'a str,
     draft_minute: Option<u16>,
+    draft_repeat: Repeat,
     military: bool,
 ) -> Element<'a, DayMessage> {
     let spacing = theme::active().cosmic().spacing;
@@ -179,8 +189,34 @@ pub fn view<'a>(
                 ..Default::default()
             }
         }));
-    // Center the pill in the full-width row so it floats in the middle.
-    let stepper = container(stepper_pill)
+
+    // Repeat pill: a single tap-to-advance control cycling Once/Daily/Weekly/
+    // Yearly, styled to match the time pill. A leading repeat glyph makes its
+    // purpose read at a glance; the fixed label width keeps it from resizing as
+    // the word changes. The whole pill is one button so tapping anywhere on it
+    // advances.
+    let repeat_inner = row::with_capacity(2)
+        .push(icon::from_name("media-playlist-repeat-symbolic").size(14))
+        .push(
+            container(text(draft_repeat.label()).size(14))
+                .width(Length::Fixed(56.0))
+                .center_x(Length::Fixed(56.0)),
+        )
+        .spacing(spacing.space_xxs)
+        .align_y(Alignment::Center);
+    let repeat_pill = button::custom(container(repeat_inner).padding([2, 6]))
+        .padding(0)
+        .on_press(DayMessage::CycleRepeat)
+        .class(repeat_pill_class());
+
+    // Picker row: time stepper on the left, repeat pill on the right, the pair
+    // centered together so the row stays balanced.
+    let picker_inner = row::with_capacity(2)
+        .push(stepper_pill)
+        .push(repeat_pill)
+        .spacing(spacing.space_xs)
+        .align_y(Alignment::Center);
+    let picker = container(picker_inner)
         .width(Length::Fill)
         .center_x(Length::Fill);
 
@@ -191,10 +227,13 @@ pub fn view<'a>(
         .on_press(DayMessage::Submit)
         .width(Length::Fill);
 
-    // The existing items, one row each.
-    let entries = store.day(date);
-    let mut list = column::with_capacity(entries.len().max(1)).spacing(spacing.space_xxs);
-    if entries.is_empty() {
+    // The existing items, one row each. `day()` expands recurrence, so this
+    // mixes items anchored here with recurring items landing here; each row's
+    // index is its position in this expanded list, which is what Toggle/Delete
+    // carry back (the app maps index -> source entry).
+    let items = store.day(date);
+    let mut list = column::with_capacity(items.len().max(1)).spacing(spacing.space_xxs);
+    if items.is_empty() {
         list = list.push(
             text("Nothing yet.")
                 .size(13)
@@ -206,15 +245,22 @@ pub fn view<'a>(
                 })),
         );
     } else {
-        for (index, entry) in entries.iter().enumerate() {
-            list = list.push(entry_row(index, &entry.text, entry.done, entry.at_minute, military));
+        for (index, item) in items.into_iter().enumerate() {
+            list = list.push(entry_row(
+                index,
+                item.text,
+                item.done,
+                item.at_minute,
+                item.repeat,
+                military,
+            ));
         }
     }
 
     column::with_capacity(5)
         .push(header)
         .push(input)
-        .push(stepper)
+        .push(picker)
         .push(add_button)
         .push(list)
         .spacing(spacing.space_s)
@@ -222,13 +268,56 @@ pub fn view<'a>(
         .into()
 }
 
+/// Styling for the repeat pill button: a bordered pill that mirrors the time
+/// stepper's look, with a subtle neutral wash on hover/press so it reads as
+/// tappable. Non-capturing closures - the theme is queried inside each.
+fn repeat_pill_class() -> cosmic::theme::Button {
+    cosmic::theme::Button::Custom {
+        active: Box::new(|_selected, t| {
+            let cosmic = t.cosmic();
+            cosmic::widget::button::Style {
+                border_radius: cosmic.corner_radii.radius_m.into(),
+                border_width: 1.0,
+                border_color: cosmic.palette.neutral_5.into(),
+                ..Default::default()
+            }
+        }),
+        hovered: Box::new(|_selected, t| {
+            let cosmic = t.cosmic();
+            let bg = cosmic::iced::Color::from(cosmic.palette.neutral_4);
+            let bg = cosmic::iced::Color { a: 0.35, ..bg };
+            cosmic::widget::button::Style {
+                background: Some(cosmic::iced::Background::Color(bg)),
+                border_radius: cosmic.corner_radii.radius_m.into(),
+                border_width: 1.0,
+                border_color: cosmic.palette.neutral_5.into(),
+                ..Default::default()
+            }
+        }),
+        pressed: Box::new(|_selected, t| {
+            let cosmic = t.cosmic();
+            let bg = cosmic::iced::Color::from(cosmic.palette.neutral_5);
+            let bg = cosmic::iced::Color { a: 0.45, ..bg };
+            cosmic::widget::button::Style {
+                background: Some(cosmic::iced::Background::Color(bg)),
+                border_radius: cosmic.corner_radii.radius_m.into(),
+                border_width: 1.0,
+                border_color: cosmic.palette.neutral_5.into(),
+                ..Default::default()
+            }
+        }),
+        disabled: Box::new(|_t| cosmic::widget::button::Style::default()),
+    }
+}
+
 /// One entry row: checkbox toggles done, text (with its hour label if any),
-/// trash deletes.
+/// an optional repeat glyph for recurring items, trash deletes.
 fn entry_row<'a>(
     index: usize,
-    label: &'a str,
+    label: String,
     done: bool,
     at_minute: Option<u16>,
+    repeat: Repeat,
     military: bool,
 ) -> Element<'a, DayMessage> {
     let spacing = theme::active().cosmic().spacing;
@@ -247,7 +336,7 @@ fn entry_row<'a>(
     let delete = button::icon(icon::from_name("user-trash-symbolic").size(16))
         .on_press(DayMessage::Delete(index));
 
-    let mut r = row::with_capacity(4).push(check).push(text_widget);
+    let mut r = row::with_capacity(5).push(check).push(text_widget);
 
     if at_minute.is_some() {
         r = r.push(
@@ -259,6 +348,15 @@ fn entry_row<'a>(
                         ..Default::default()
                     }
                 })),
+        );
+    }
+
+    // Small repeat glyph for recurring items, so a filled/greyed row still
+    // reads as "this one comes back". Muted to sit quietly next to the time.
+    if repeat != Repeat::None {
+        r = r.push(
+            container(icon::from_name("media-playlist-repeat-symbolic").size(12))
+                .padding([0, spacing.space_xxxs as u16]),
         );
     }
 
