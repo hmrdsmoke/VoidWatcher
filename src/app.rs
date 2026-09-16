@@ -24,6 +24,7 @@ use crate::settings::Settings;
 use cosmic::cosmic_config::ConfigSet;
 use cosmic::cosmic_theme::Spacing;
 use crate::day::{self, DayMessage};
+use crate::easter_egg;
 use crate::store::{Repeat, Store};
 
 /// The popup's fixed inner width - the calendar grid's exact width (7 cells +
@@ -75,6 +76,8 @@ enum Screen {
     Month,
     Day(Date),
     Settings,
+    /// The hidden origin screen (see `easter_egg`).
+    EasterEgg,
 }
 
 /// The application model stores app-specific state used to describe its
@@ -109,6 +112,8 @@ pub struct AppModel {
     /// The repeat rule sitting in the day view's picker, paired with `draft`.
     /// `Repeat::None` = a one-off. Reset with `draft`.
     draft_repeat: Repeat,
+    /// Consecutive-tap counter for the hidden origin screen.
+    egg: easter_egg::Trigger,
     /// The minute (0-59) the reminder check last ran, so it runs once a minute
     /// rather than every one-second tick. `None` until the first check.
     last_reminder_minute: Option<i8>,
@@ -140,6 +145,8 @@ pub enum Message {
     OpenSettings,
     /// Leave the settings screen back to the calendar.
     CloseSettings,
+    /// Leave the hidden origin screen back to the calendar.
+    CloseEgg,
     /// Step the default reminder time's hour by +/-1 (wraps).
     SettingsHour(i32),
     /// Step the default reminder time's minute by +/-1 five-minute slot (wraps).
@@ -182,6 +189,7 @@ impl cosmic::Application for AppModel {
             draft: String::new(),
             draft_minute: None,
             draft_repeat: Repeat::None,
+            egg: easter_egg::Trigger::default(),
             last_reminder_minute: None,
             rectangle_tracker: None,
             rectangle: Rectangle::default(),
@@ -245,6 +253,9 @@ impl cosmic::Application for AppModel {
                 .map(Message::Day)
             }
             Screen::Settings => self.settings_screen(),
+            Screen::EasterEgg => {
+                easter_egg::view(popup_spacing(&self.settings), Message::CloseEgg)
+            }
         };
         let content = container(screen)
             .width(Length::Fixed(POPUP_WIDTH))
@@ -349,6 +360,9 @@ impl cosmic::Application for AppModel {
             Message::HighlightDay(date) => {
                 self.visible = date;
                 self.selected = Some(date);
+                if self.egg.tap(date) {
+                    self.screen = Screen::EasterEgg;
+                }
             }
             Message::OpenDay(date) => {
                 self.visible = date;
@@ -364,6 +378,9 @@ impl cosmic::Application for AppModel {
                 self.screen = Screen::Settings;
             }
             Message::CloseSettings => {
+                self.screen = Screen::Month;
+            }
+            Message::CloseEgg => {
                 self.screen = Screen::Month;
             }
             Message::SettingsHour(dir) => {

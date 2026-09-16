@@ -9,6 +9,7 @@ mod app;
 mod calendar;
 mod config;
 mod day;
+mod easter_egg;
 mod i18n;
 mod notify;
 mod settings;
