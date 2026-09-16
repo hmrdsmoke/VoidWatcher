@@ -2,31 +2,57 @@
 <component type="desktop-application">
   <id>com.github.hmrdsmoke.void-watcher</id>
   <name>Void Watcher</name>
-  <summary>Date, time, and calendar for the COSMIC panel</summary>
+  <summary>Panel clock and calendar with a per-day to-do list and reminders</summary>
   <description>
     <p>
-      Void Watcher puts the date and time in your COSMIC panel and a month
-      calendar one click away. It reads the same settings the stock clock
-      does, so whatever you pick in Settings › Date &amp; Time — 24-hour time,
-      seconds, weekday, date in the panel, first day of the week, even a custom
-      format — Void Watcher follows it. Nothing to configure twice.
+      Void Watcher is a COSMIC panel clock that does more than tell the time.
+      Right-click any day in the calendar to add to-do items to that date, and
+      Void Watcher will remind you before they're due. Your list survives
+      restarts and reboots.
+    </p>
+    <p>
+      The clock reads the same settings the stock COSMIC clock does, so whatever
+      you pick in Settings › Date &amp; Time — 24-hour time, seconds, weekday,
+      date in the panel, first day of the week, even a custom format — Void
+      Watcher follows it. Nothing to configure twice.
     </p>
     <p>What's in the box:</p>
     <ul>
-      <li>Panel clock that follows your Date &amp; Time settings live</li>
+      <li>Per-day to-do list — right-click a day to add items, check them off, or delete them</li>
+      <li>Desktop notifications before an item is due, with a lead time you set</li>
+      <li>To-dos persist across restarts and reboots</li>
+      <li>Panel clock that follows your Date &amp; Time settings</li>
       <li>Month calendar popup with previous/next navigation and a jump back to today</li>
       <li>Works on horizontal and vertical panels</li>
     </ul>
+    <p>
+      Void Watcher reads your Date &amp; Time preferences at startup, matching
+      how the stock COSMIC clock works. After changing a setting, restart the
+      panel for it to take effect.
+    </p>
   </description>
   <launchable type="desktop-id">com.github.hmrdsmoke.void-watcher.desktop</launchable>
   <url type="homepage">https://github.com/hmrdsmoke/VoidWatcher</url>
   <url type="bugtracker">https://github.com/hmrdsmoke/VoidWatcher/issues</url>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <developer_name>HMRDSmoke Software LLC</developer_name>
   <developer id="com.github.hmrdsmoke">
     <name>HMRDSmoke Software LLC</name>
   </developer>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Month calendar popup</caption>
+      <image>https://raw.githubusercontent.com/hmrdsmoke/VoidWatcher/main/screenshots/calendar.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Day view with to-do list</caption>
+      <image>https://raw.githubusercontent.com/hmrdsmoke/VoidWatcher/main/screenshots/todo.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Notification and reminder settings</caption>
+      <image>https://raw.githubusercontent.com/hmrdsmoke/VoidWatcher/main/screenshots/settings.jpg</image>
+    </screenshot>
+  </screenshots>
   <releases>
     <release version="0.1.0" date="2026-09-13">
       <description>
