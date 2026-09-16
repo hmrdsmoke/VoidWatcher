@@ -49,8 +49,6 @@ pub fn month<'a, Message: Clone + 'static>(
     on_highlight: impl Fn(Date) -> Message + 'a,
     on_open: impl Fn(Date) -> Message + 'a,
 ) -> Element<'a, Message> {
-    let spacing = theme::active().cosmic().spacing;
-
     // The date sitting in the top-left cell: walk back from the 1st of the
     // visible month to the most recent `first_weekday`. `since` gives the
     // signed day-count between two weekdays, which is exactly that offset.
@@ -60,9 +58,13 @@ pub fn month<'a, Message: Clone + 'static>(
         .checked_sub(jiff::Span::new().days(i64::from(lead)))
         .unwrap_or(first_of_month);
 
+    // 1px spacing is the gridline itself: the cells below paint an opaque base
+    // color, and this gap lets the line-colored backdrop (see the wrapping
+    // container at the end) show through as a uniform 1px rule between every
+    // cell. Uniform because it's one backdrop, not per-cell borders doubling up.
     let mut grid: Grid<'a, Message> = grid()
-        .column_spacing(spacing.space_xxxs)
-        .row_spacing(spacing.space_xxxs);
+        .column_spacing(1)
+        .row_spacing(1);
 
     // Header row: weekday initials, in the user's chosen order.
     for col in 0..COLS {
@@ -97,7 +99,19 @@ pub fn month<'a, Message: Clone + 'static>(
         }
     }
 
-    grid.into()
+    // Wrap the grid in a container tinted with the line color, padded 1px so the
+    // outer edge of the grid gets the same rule as the internal gaps. The cells
+    // sit on top painting the base color, so what shows between and around them
+    // is this backdrop: a closed, uniform 1px grid frame with no doubled lines.
+    container(grid)
+        .padding(1)
+        .class(cosmic::style::Container::custom(|t| {
+            cosmic::iced::widget::container::Style {
+                background: Some(Background::Color(t.cosmic().palette.neutral_5.into())),
+                ..Default::default()
+            }
+        }))
+        .into()
 }
 
 /// Fields that decide how a single day cell looks.
@@ -119,6 +133,14 @@ fn weekday_heading<'a, Message: 'a>(label: &'static str) -> Element<'a, Message>
     })))
     .width(Length::Fixed(CELL))
     .center_x(Length::Fixed(CELL))
+    // Opaque base like the day cells, so the header row reads as part of the
+    // ruled grid rather than showing the backdrop through as gaps.
+    .class(cosmic::style::Container::custom(|t| {
+        cosmic::iced::widget::container::Style {
+            background: Some(Background::Color(t.cosmic().palette.neutral_1.into())),
+            ..Default::default()
+        }
+    }))
     .into()
 }
 
@@ -203,11 +225,12 @@ fn number_style(cell: &DayCell) -> cosmic::style::Text {
 
 /// The button styling for a day tile, across its interaction states.
 ///
-/// Selected day: filled accent in every state. Today: an accent ring. A plain
-/// day: transparent at rest, a subtle neutral wash on hover and a slightly
-/// stronger one when pressed — the understated "tile" feel. The `selected`
-/// flag the closures receive is unused here because selection is baked into the
-/// cell we captured; today/selected are read off the captured `DayCell`.
+/// For the ruled-grid look every cell paints an OPAQUE background (so the
+/// line-colored backdrop only shows in the 1px gaps, not through the cell) and
+/// uses SQUARE corners (rounded tiles would leave the backdrop peeking at the
+/// corners where four cells meet, breaking the grid). Resting cells are the
+/// theme base; hover/press wash a neutral over it; the selected day is filled
+/// accent; today keeps an accent ring. All square, all opaque.
 fn day_button_class(cell: &DayCell) -> cosmic::theme::Button {
     let is_today = cell.is_today;
     let is_selected = cell.is_selected;
@@ -218,41 +241,36 @@ fn day_button_class(cell: &DayCell) -> cosmic::theme::Button {
             if is_selected {
                 cosmic::widget::button::Style {
                     background: Some(Background::Color(cosmic.accent_color().into())),
-                    border_radius: cosmic.corner_radii.radius_s.into(),
                     ..Default::default()
                 }
             } else if is_today {
                 cosmic::widget::button::Style {
-                    border_radius: cosmic.corner_radii.radius_s.into(),
+                    background: Some(Background::Color(cosmic.palette.neutral_1.into())),
                     border_width: 1.0,
                     border_color: cosmic.accent_color().into(),
                     ..Default::default()
                 }
             } else {
+                // Opaque base so the backdrop shows only in the gaps.
                 cosmic::widget::button::Style {
-                    border_radius: cosmic.corner_radii.radius_s.into(),
+                    background: Some(Background::Color(cosmic.palette.neutral_1.into())),
                     ..Default::default()
                 }
             }
         }),
         hovered: Box::new(move |_selected, t| {
             let cosmic = t.cosmic();
-            // Subtle neutral wash. Selected keeps its accent fill; today keeps
-            // its ring on top of the wash.
-            // Srgba has a public `alpha` field; struct-update avoids needing
-            // the palette WithAlpha trait in scope.
+            // Neutral wash over the base. Square, opaque, no radius.
             let bg = cosmic::iced::Color::from(cosmic.palette.neutral_4);
             let bg = cosmic::iced::Color { a: 0.35, ..bg };
             if is_selected {
                 cosmic::widget::button::Style {
                     background: Some(Background::Color(cosmic.accent_color().into())),
-                    border_radius: cosmic.corner_radii.radius_s.into(),
                     ..Default::default()
                 }
             } else {
                 cosmic::widget::button::Style {
                     background: Some(Background::Color(bg)),
-                    border_radius: cosmic.corner_radii.radius_s.into(),
                     border_width: if is_today { 1.0 } else { 0.0 },
                     border_color: cosmic.accent_color().into(),
                     ..Default::default()
@@ -266,13 +284,11 @@ fn day_button_class(cell: &DayCell) -> cosmic::theme::Button {
             if is_selected {
                 cosmic::widget::button::Style {
                     background: Some(Background::Color(cosmic.accent_color().into())),
-                    border_radius: cosmic.corner_radii.radius_s.into(),
                     ..Default::default()
                 }
             } else {
                 cosmic::widget::button::Style {
                     background: Some(Background::Color(bg)),
-                    border_radius: cosmic.corner_radii.radius_s.into(),
                     border_width: if is_today { 1.0 } else { 0.0 },
                     border_color: cosmic.accent_color().into(),
                     ..Default::default()
