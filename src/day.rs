@@ -20,9 +20,10 @@
 
 use std::sync::LazyLock;
 
+use cosmic::cosmic_theme::Spacing;
 use cosmic::iced::{Alignment, Length};
 use cosmic::widget::{button, checkbox, column, container, icon, row, text, text_input};
-use cosmic::{Element, theme};
+use cosmic::Element;
 use jiff::civil::Date;
 
 use crate::store::{Repeat, Store};
@@ -119,8 +120,8 @@ pub fn view<'a>(
     draft_minute: Option<u16>,
     draft_repeat: Repeat,
     military: bool,
+    spacing: Spacing,
 ) -> Element<'a, DayMessage> {
-    let spacing = theme::active().cosmic().spacing;
 
     // Header row: back button on the left, "To Do List" centered. Both side
     // slots are the SAME fixed width so the centered title sits dead center in
@@ -209,13 +210,15 @@ pub fn view<'a>(
         .on_press(DayMessage::CycleRepeat)
         .class(repeat_pill_class());
 
-    // Picker row: time stepper on the left, repeat pill on the right, the pair
-    // centered together so the row stays balanced.
-    let picker_inner = row::with_capacity(2)
+    // Picker column: time stepper on top, repeat pill below it, both centered.
+    // Stacked rather than side-by-side because the popup width is pinned to the
+    // calendar grid (POPUP_WIDTH) and the two pills side-by-side overflow it;
+    // vertical is the axis we have room on.
+    let picker_inner = column::with_capacity(2)
         .push(stepper_pill)
         .push(repeat_pill)
         .spacing(spacing.space_xs)
-        .align_y(Alignment::Center);
+        .align_x(Alignment::Center);
     let picker = container(picker_inner)
         .width(Length::Fill)
         .center_x(Length::Fill);
@@ -253,6 +256,7 @@ pub fn view<'a>(
                 item.at_minute,
                 item.repeat,
                 military,
+                spacing,
             ));
         }
     }
@@ -319,9 +323,8 @@ fn entry_row<'a>(
     at_minute: Option<u16>,
     repeat: Repeat,
     military: bool,
+    spacing: Spacing,
 ) -> Element<'a, DayMessage> {
-    let spacing = theme::active().cosmic().spacing;
-
     let check = checkbox(done).on_toggle(move |_| DayMessage::Toggle(index));
 
     let text_widget = text(label).width(Length::Fill).class(if done {

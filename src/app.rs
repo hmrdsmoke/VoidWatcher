@@ -22,17 +22,48 @@ use crate::calendar::{self, MonthView};
 use crate::config::{TIME_CONFIG_ID, TimeAppletConfig};
 use crate::settings::Settings;
 use cosmic::cosmic_config::ConfigSet;
+use cosmic::cosmic_theme::Spacing;
 use crate::day::{self, DayMessage};
 use crate::store::{Repeat, Store};
 
-/// The popup's fixed inner size, shared by every screen so switching views
-/// never resizes or repositions the popup. Width is the calendar grid's exact
-/// width (7 cells + 6 gaps). Height is a little over the calendar's natural
-/// stack (three-line header + 6-row grid + Today button + spacing) so the
-/// calendar fills it without clipping and other screens get the same roomy box.
-/// Nudge `POPUP_HEIGHT` if the calendar clips or leaves too much empty space.
+/// The popup's fixed inner width - the calendar grid's exact width (7 cells +
+/// 6 gaps), shared by every screen so switching views never resizes the popup.
 const POPUP_WIDTH: f32 = 380.0;
-const POPUP_HEIGHT: f32 = 520.0;
+
+/// Base popup height, sized for the calendar's natural stack (three-line header
+/// + 6-row grid + Today/Settings buttons) at COMPACT widget padding: a little
+/// over what that stack needs so nothing clips and the box isn't loose. This is
+/// the height when the system is Compact; taller densities add to it (see
+/// `popup_height`). Nudge this if the calendar clips or leaves empty space.
+const POPUP_HEIGHT_BASE: f32 = 520.0;
+
+/// The popup height for the current SYSTEM interface density.
+///
+/// The one thing our own config can't shrink is the widgets' internal padding -
+/// buttons and text inputs read libcosmic's process-global `CosmicTk`, which an
+/// always-on disk watcher rewrites from the system config on any change, so a
+/// value we seed never holds. On Standard/Spacious those widgets render taller,
+/// and a fixed height would push the bottom row (the repeat pill on the day
+/// view, the Settings button on the calendar) off the popup's edge. So instead
+/// of fighting the widgets we measure them: read the system density and give
+/// the box the extra room that density's inflation needs. Our own gaps stay
+/// tight (see `popup_spacing`); this only grows the outer box to hold the
+/// widgets the system sized.
+fn popup_height() -> f32 {
+    match cosmic::config::interface_density() {
+        cosmic::cosmic_theme::Density::Compact => POPUP_HEIGHT_BASE,
+        cosmic::cosmic_theme::Density::Standard => POPUP_HEIGHT_BASE + 80.0,
+        cosmic::cosmic_theme::Density::Spacious => POPUP_HEIGHT_BASE + 180.0,
+    }
+}
+
+/// The spacing Void Watcher lays out at: our OWN config's density, not the
+/// system's. Kept in our namespace so nothing overwrites it, and deliberately
+/// tight (defaults Compact) so the popup stays dense regardless of the system
+/// setting. Every screen's gap values come from here.
+fn popup_spacing(settings: &Settings) -> Spacing {
+    settings.spacing()
+}
 
 /// Which screen the popup is showing: the month grid, or one day's to-do list.
 /// The popup is a single surface that swaps between them, because an applet
@@ -209,6 +240,7 @@ impl cosmic::Application for AppModel {
                     self.draft_minute,
                     self.draft_repeat,
                     self.config.military_time,
+                    popup_spacing(&self.settings),
                 )
                 .map(Message::Day)
             }
@@ -216,7 +248,7 @@ impl cosmic::Application for AppModel {
         };
         let content = container(screen)
             .width(Length::Fixed(POPUP_WIDTH))
-            .height(Length::Fixed(POPUP_HEIGHT))
+            .height(Length::Fixed(popup_height()))
             .padding([0, 4]);
         self.core.applet.popup_container(content).into()
     }
@@ -273,11 +305,12 @@ impl cosmic::Application for AppModel {
                             height: height.max(1.0) as i32,
                         };
 
+                        let height = popup_height();
                         settings.positioner.size_limits = Limits::NONE
                             .min_width(POPUP_WIDTH)
                             .max_width(POPUP_WIDTH)
-                            .min_height(POPUP_HEIGHT)
-                            .max_height(POPUP_HEIGHT);
+                            .min_height(height)
+                            .max_height(height);
                         settings.positioner.size = None;
                         settings
                     },
@@ -378,7 +411,7 @@ impl AppModel {
         left: Option<Element<'a, Message>>,
         right: Option<Element<'a, Message>>,
     ) -> Element<'a, Message> {
-        let spacing = cosmic::theme::active().cosmic().spacing;
+        let spacing = popup_spacing(&self.settings);
 
         let date_line = strtime::format("%B %-d, %Y", date).unwrap_or_default();
         let weekday_line = strtime::format("%A", date).unwrap_or_default();
@@ -411,7 +444,7 @@ impl AppModel {
 
     /// The month-grid screen: header with month-nav arrows, the grid, a Today button.
     fn month_screen(&self) -> Element<'_, Message> {
-        let spacing = cosmic::theme::active().cosmic().spacing;
+        let spacing = popup_spacing(&self.settings);
         let today = self.now.date();
 
         let focus = self.selected.unwrap_or(today);
@@ -482,7 +515,7 @@ impl AppModel {
     /// the left, then the default reminder time (a two-stepper picker with no
     /// clear - it's always a time) and the reminder lead (a +/-5 stepper).
     fn settings_screen(&self) -> Element<'_, Message> {
-        let spacing = cosmic::theme::active().cosmic().spacing;
+        let spacing = popup_spacing(&self.settings);
 
         // Header: back button left, "Settings" centered, matched spacer right.
         let back = button::icon(cosmic::widget::icon::from_name("go-previous-symbolic").size(16))
