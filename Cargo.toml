@@ -1,6 +1,6 @@
 [package]
 name        = "void-watcher"
-version     = "0.1.0"
+version     = "2.0.0"
 edition     = "2024"
 authors     = ["Michael Van Auker (HMRDSmoke)"]
 license     = "GPL-3.0-or-later"
@@ -8,6 +8,29 @@ description = "Date, time, and calendar applet for the COSMIC panel"
 repository  = "https://github.com/hmrdsmoke/VoidWatcher"
 homepage    = "https://github.com/hmrdsmoke/VoidWatcher"
 readme      = "README.md"
+
+# ===========================================================================
+# DEBIAN PACKAGE — `cargo deb` (cargo-deb) builds target/debian/*.deb
+# Mirrors the Makefile / flatpak install layout, under /usr (packages never
+# touch /usr/local). `$auto` fills shared-library Depends from the binary via
+# dpkg-shlibdeps (package dpkg-dev); cosmic-panel is what hosts the applet.
+# ===========================================================================
+[package.metadata.deb]
+section              = "utils"
+priority             = "optional"
+depends              = "$auto, cosmic-panel"
+license-file         = ["LICENSE", "0"]
+extended-description = """\
+Panel clock and calendar for the COSMIC desktop with a per-day to-do list \
+and reminders. Shows the date and time in the panel; the popup has a month \
+calendar, a to-do list for any day with one-off and recurring items, and \
+desktop notifications for reminders."""
+assets = [
+    ["target/release/void-watcher", "usr/bin/com.github.hmrdsmoke.void-watcher", "755"],
+    ["resources/com.github.hmrdsmoke.void-watcher.desktop", "usr/share/applications/", "644"],
+    ["resources/com.github.hmrdsmoke.void-watcher.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["resources/icon.svg", "usr/share/icons/hicolor/scalable/apps/com.github.hmrdsmoke.void-watcher.svg", "644"],
+]
 
 [dependencies]
 # ── UI framework ─────────────────────────────────────────────────────────────
