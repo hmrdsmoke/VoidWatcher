@@ -15,15 +15,24 @@
 pub fn send(summary: &str, body: &str) {
     let summary = summary.to_owned();
     let body = body.to_owned();
-    std::thread::spawn(move || {
-        let result = notify_rust::Notification::new()
-            .appname("Void Watcher")
-            .summary(&summary)
-            .body(&body)
-            .icon("com.github.hmrdsmoke.void-watcher")
-            .show();
-        if let Err(e) = result {
-            eprintln!("void-watcher: notification failed: {e}");
-        }
-    });
+    std::thread::spawn(move || show(&summary, &body));
+}
+
+/// Show a notification on the calling thread and return once it's been
+/// handed to the notification service. For the one-shot import process,
+/// which exits right after and would otherwise race its own notification.
+pub fn send_and_wait(summary: &str, body: &str) {
+    show(summary, body);
+}
+
+fn show(summary: &str, body: &str) {
+    let result = notify_rust::Notification::new()
+        .appname("Void Watcher")
+        .summary(summary)
+        .body(body)
+        .icon("com.github.hmrdsmoke.void-watcher")
+        .show();
+    if let Err(e) = result {
+        eprintln!("void-watcher: notification failed: {e}");
+    }
 }

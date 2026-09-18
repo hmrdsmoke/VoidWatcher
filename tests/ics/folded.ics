@@ -1,0 +1,14 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Void Watcher fixtures//EN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:folded-1@fixtures
+DTSTAMP:20260918T120000Z
+DTSTART;TZID=America/New_York:20261005T120000
+SUMMARY:Lunch with the Smiths\, the Joneses\; then coffee - a summary lo
+ ng enough that the producer folded it across two lines\nsecond line
+DESCRIPTION:Not imported\, and folded too
+ across lines.
+END:VEVENT
+END:VCALENDAR

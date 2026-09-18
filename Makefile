@@ -23,6 +23,10 @@ ICON_SIZES    := 16 22 24 48 64 128 256
 APP_ID        := com.github.hmrdsmoke.void-watcher
 BIN           := target/release/void-watcher
 DESK          := resources/$(APP_ID).desktop
+# The hidden "open .ics with Void Watcher" entry: carries the text/calendar
+# MimeType and the %f, kept OFF the applet's own entry because cosmic-panel
+# passes every word of an applet's Exec line through as-is.
+IMPORT_DESK   := resources/$(APP_ID).import.desktop
 METAINFO      := resources/$(APP_ID).metainfo.xml
 ICONSRC       := resources/icons/hicolor
 ICON_SVG      := resources/icon.svg
@@ -44,6 +48,8 @@ install: release
 	install -Dm755 $(BIN) $(BINDIR)/$(APP_ID)
 	@echo "Installing desktop file → $(APPDIR)"
 	install -Dm644 $(DESK) $(APPDIR)/$(APP_ID).desktop
+	@echo "Installing .ics import entry → $(APPDIR)"
+	install -Dm644 $(IMPORT_DESK) $(APPDIR)/$(APP_ID).import.desktop
 	@echo "Installing metainfo → $(METADIR)"
 	install -Dm644 $(METAINFO) $(METADIR)/$(APP_ID).metainfo.xml
 	@echo "Installing scalable icon → $(ICON_BASE)/scalable/apps"
@@ -68,6 +74,7 @@ uninstall:
 	@echo "Removing Void Watcher..."
 	rm -f $(BINDIR)/$(APP_ID)
 	rm -f $(APPDIR)/$(APP_ID).desktop
+	rm -f $(APPDIR)/$(APP_ID).import.desktop
 	rm -f $(METADIR)/$(APP_ID).metainfo.xml
 	rm -f $(ICON_SVG_DST)
 	@for sz in $(ICON_SIZES); do \

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Void Watcher
+Comment=Add a calendar invite (.ics) to Void Watcher's to-do list
+Type=Application
+Exec=com.github.hmrdsmoke.void-watcher %f
+Icon=com.github.hmrdsmoke.void-watcher
+Terminal=false
+NoDisplay=true
+MimeType=text/calendar;
+Categories=Utility;Office;Calendar;

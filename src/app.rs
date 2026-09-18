@@ -343,6 +343,13 @@ impl cosmic::Application for AppModel {
             },
             Message::Tick => {
                 self.now = Zoned::now();
+                // An .ics import runs as its own short-lived process and writes
+                // the to-do file behind our back; when the file on disk is newer
+                // than what we last read or wrote, pick it up. One stat a
+                // second, and nothing else changes the file but us.
+                if self.store.changed_on_disk() {
+                    self.store = Store::load();
+                }
                 // Reminders fire on minute boundaries, so only scan when the
                 // minute changes - not every one-second tick.
                 let minute = self.now.minute();
