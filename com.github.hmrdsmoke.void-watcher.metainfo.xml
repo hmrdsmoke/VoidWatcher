@@ -54,6 +54,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.0.0" date="2026-09-16">
+      <description>
+        <p>Recurring to-dos: daily, weekly, or yearly items, checked off per day.</p>
+        <p>Month and year label under the clock when browsing other months.</p>
+        <p>Ruled gridlines on the calendar.</p>
+        <p>Popup layout no longer clips at Standard or Spacious interface density.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-09-13">
       <description>
         <p>Initial release of Void Watcher.</p>
