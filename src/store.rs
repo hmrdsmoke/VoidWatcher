@@ -134,6 +134,18 @@ impl Repeat {
         }
     }
 
+    /// The last day of a recurrence that runs `steps` periods past `start`:
+    /// the date of the (steps + 1)th occurrence, so one step from a Friday
+    /// weekly is the next Friday. `None` for no steps, for a one-off, or for a
+    /// rule with no further occurrence to land on. What the day view's Ends
+    /// pill shows and what a typed to-do saves as `until`.
+    pub fn end_after(self, start: Date, steps: u32) -> Option<Date> {
+        if steps == 0 || self == Repeat::None {
+            return None;
+        }
+        self.nth_occurrence(start, 1, steps + 1)
+    }
+
     /// The date of the `n`th occurrence (1-based) of this rule from `start`,
     /// walking day by day. Used to turn an invite's "COUNT=6" into an end
     /// date. Bounded to a couple of centuries so a rule that never matches
@@ -243,7 +255,7 @@ pub struct Entry {
 }
 
 impl Entry {
-    fn new(text: String, at_minute: Option<u16>, repeat: Repeat) -> Self {
+    fn new(text: String, at_minute: Option<u16>, repeat: Repeat, until: Option<Date>) -> Self {
         Self {
             text,
             done: false,
@@ -254,7 +266,7 @@ impl Entry {
             notified_dates: Vec::new(),
             uid: None,
             sequence: 0,
-            until: None,
+            until,
             exdates: Vec::new(),
             interval: 1,
         }
@@ -586,10 +598,17 @@ impl Store {
     }
 
     /// Add a line to a day, optionally tagged with a time (minutes since
-    /// midnight) and a repeat rule. The day passed is the entry's anchor/start
-    /// date. Blank input is ignored so an empty text box plus Enter doesn't
-    /// create a phantom entry.
-    pub fn add(&mut self, date: Date, text: String, at_minute: Option<u16>, repeat: Repeat) {
+    /// midnight), a repeat rule and the last day that rule applies. The day
+    /// passed is the entry's anchor/start date. Blank input is ignored so an
+    /// empty text box plus Enter doesn't create a phantom entry.
+    pub fn add(
+        &mut self,
+        date: Date,
+        text: String,
+        at_minute: Option<u16>,
+        repeat: Repeat,
+        until: Option<Date>,
+    ) {
         let text = text.trim();
         if text.is_empty() {
             return;
@@ -597,7 +616,7 @@ impl Store {
         self.days
             .entry(date.to_string())
             .or_default()
-            .push(Entry::new(text.to_owned(), at_minute, repeat));
+            .push(Entry::new(text.to_owned(), at_minute, repeat, until));
         self.save();
     }
 
@@ -970,7 +989,7 @@ mod tests {
             interval: 2,
             uid: Some("abc".into()),
             sequence: 3,
-            ..Entry::new("Board".into(), None, Repeat::None)
+            ..Entry::new("Board".into(), None, Repeat::None, None)
         };
         let json = serde_json::to_string(&e).unwrap();
         let back: Entry = serde_json::from_str(&json).unwrap();
@@ -1010,6 +1029,21 @@ mod tests {
         assert!(r.occurs_on(start, d("2026-10-30"), 1));
         assert!(r.occurs_on(start, d("2026-11-27"), 1));
         assert!(!r.occurs_on(start, d("2026-11-20"), 1));
+    }
+
+    #[test]
+    fn end_after_steps_lands_on_real_occurrences() {
+        let fri = d("2026-09-25");
+        assert_eq!(Repeat::Weekly.end_after(fri, 0), None);
+        assert_eq!(Repeat::None.end_after(fri, 3), None);
+        assert_eq!(Repeat::Weekly.end_after(fri, 1), Some(d("2026-10-02")));
+        assert_eq!(Repeat::Weekly.end_after(fri, 3), Some(d("2026-10-16")));
+        assert_eq!(Repeat::Daily.end_after(fri, 2), Some(d("2026-09-27")));
+        assert_eq!(Repeat::Yearly.end_after(d("2024-02-29"), 1), Some(d("2028-02-29")));
+        let mut s = store();
+        s.add(fri, "Standup".into(), None, Repeat::Weekly, Repeat::Weekly.end_after(fri, 2));
+        assert!(s.has_entries(d("2026-10-09")));
+        assert!(!s.has_entries(d("2026-10-16")));
     }
 
     #[test]

@@ -112,6 +112,11 @@ pub struct AppModel {
     /// The repeat rule sitting in the day view's picker, paired with `draft`.
     /// `Repeat::None` = a one-off. Reset with `draft`.
     draft_repeat: Repeat,
+    /// How many periods of `draft_repeat` the draft's end date sits past its
+    /// start: 0 = never ends. Kept as a step count rather than a date so
+    /// switching the repeat (weekly to daily, say) keeps "three taps" meaning
+    /// three periods of the new rule. Reset with `draft`.
+    draft_end_steps: u32,
     /// Consecutive-tap counter for the hidden origin screen.
     egg: easter_egg::Trigger,
     /// The minute (0-59) the reminder check last ran, so it runs once a minute
@@ -189,6 +194,7 @@ impl cosmic::Application for AppModel {
             draft: String::new(),
             draft_minute: None,
             draft_repeat: Repeat::None,
+            draft_end_steps: 0,
             egg: easter_egg::Trigger::default(),
             last_reminder_minute: None,
             rectangle_tracker: None,
@@ -243,10 +249,12 @@ impl cosmic::Application for AppModel {
             Screen::Day(date) => {
                 day::view(
                     date,
+                    self.now.date(),
                     &self.store,
                     &self.draft,
                     self.draft_minute,
                     self.draft_repeat,
+                    self.draft_repeat.end_after(date, self.draft_end_steps),
                     self.config.military_time,
                     popup_spacing(&self.settings),
                 )
@@ -377,6 +385,7 @@ impl cosmic::Application for AppModel {
                 self.draft.clear();
                 self.draft_minute = None;
                 self.draft_repeat = Repeat::None;
+                self.draft_end_steps = 0;
                 self.screen = Screen::Day(date);
                 return text_input::focus(day::INPUT_ID.clone());
             }
@@ -665,6 +674,7 @@ impl AppModel {
                 self.draft.clear();
                 self.draft_minute = None;
                 self.draft_repeat = Repeat::None;
+                self.draft_end_steps = 0;
             }
             DayMessage::Input(text) => {
                 self.draft = text;
@@ -686,14 +696,32 @@ impl AppModel {
             }
             DayMessage::CycleRepeat => {
                 self.draft_repeat = self.draft_repeat.next();
+                // Back to a one-off: an end date means nothing, drop it so it
+                // can't ride along onto nothing.
+                if self.draft_repeat == Repeat::None {
+                    self.draft_end_steps = 0;
+                }
+            }
+            DayMessage::EndsUp => {
+                // Only step where the rule actually lands somewhere; a rule that
+                // never occurs again has nowhere further to go.
+                let next = self.draft_end_steps + 1;
+                if self.draft_repeat.end_after(date, next).is_some() {
+                    self.draft_end_steps = next;
+                }
+            }
+            DayMessage::EndsDown => {
+                self.draft_end_steps = self.draft_end_steps.saturating_sub(1);
             }
             DayMessage::Submit => {
                 let at_minute = self.draft_minute;
                 let repeat = self.draft_repeat;
+                let until = repeat.end_after(date, self.draft_end_steps);
                 self.store
-                    .add(date, std::mem::take(&mut self.draft), at_minute, repeat);
+                    .add(date, std::mem::take(&mut self.draft), at_minute, repeat, until);
                 self.draft_minute = None;
                 self.draft_repeat = Repeat::None;
+                self.draft_end_steps = 0;
                 return text_input::focus(day::INPUT_ID.clone());
             }
             // Toggle/Delete carry the row's position in the EXPANDED day list

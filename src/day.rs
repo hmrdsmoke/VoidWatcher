@@ -7,16 +7,23 @@
 //
 // Reached by right-clicking a day in the month grid. Layout, top to bottom:
 // a header row ("To Do List" with a back button on the left), a text box to
-// add an item, a picker row (a -/+ time stepper and a tap-to-advance repeat
-// pill), an Add button, then the day's existing items as checkbox / text /
-// time / repeat-glyph / delete rows. Builds widgets only - every edit goes back
-// to the app as a message, which mutates the Store.
+// add an item, a picker (a -/+ time stepper, and under it a tap-to-advance
+// repeat pill beside a -/+ "Ends" pill), an Add button, then the day's existing
+// items as checkbox / text / time / glyphs / delete rows. Builds widgets only -
+// every edit goes back to the app as a message, which mutates the Store.
 //
 // Recurrence (v2): the picker gained a repeat pill (Once/Daily/Weekly/Yearly)
 // that cycles on tap, matching the hand-built stepper style. Rows for recurring
 // items show a small repeat glyph. Because a day now shows items that may be
 // anchored on other days (expand-on-read), each row's Toggle/Delete carries its
 // position in the expanded list; the app maps that back to the source entry.
+//
+// End dates and invites (v3): an "Ends" pill sits beside the repeat pill,
+// greyed out until a repeat is chosen. Each plus adds one period of that
+// repeat and the label reads the DATE it lands on ("Ends: Oct 2"), not a
+// count, so you see the month and day the recurrence stops. Rows that came
+// from a calendar invite (see ics.rs) show a small envelope glyph: that one
+// follows the organizer's updates.
 
 use std::sync::LazyLock;
 
@@ -50,6 +57,10 @@ pub enum DayMessage {
     ClearTime,
     /// Advance the draft repeat rule (Once -> Daily -> Weekly -> Yearly -> Once).
     CycleRepeat,
+    /// Push the draft's end date out by one period of its repeat, or pull it
+    /// back one (down to no end). Ignored while the repeat is Once.
+    EndsUp,
+    EndsDown,
     /// Commit the current draft as a new entry.
     Submit,
     /// Toggle the done flag for the occurrence at this row.
@@ -110,15 +121,32 @@ pub fn time_label(at: Option<u16>, military: bool) -> String {
     }
 }
 
+/// Label for the Ends pill: "Never", or the last day the recurrence applies,
+/// as month and day - with the year only when it isn't this year (a yearly
+/// repeat's end always is: "Sep 3, 2028").
+pub fn end_label(end: Option<Date>, today: Date) -> String {
+    match end {
+        None => "Ends: Never".to_owned(),
+        Some(date) => {
+            let fmt = if date.year() == today.year() { "%b %-d" } else { "%b %-d, %Y" };
+            let when = jiff::fmt::strtime::format(fmt, date).unwrap_or_else(|_| date.to_string());
+            format!("Ends: {when}")
+        }
+    }
+}
+
 /// Build the day view for `date`, reading entries from `store` and showing
-/// `draft` in the add box with `draft_minute` in the time picker and
-/// `draft_repeat` in the repeat pill.
+/// `draft` in the add box with `draft_minute` in the time picker,
+/// `draft_repeat` in the repeat pill and `draft_end` in the Ends pill.
+/// `today` decides whether the end date needs its year spelled out.
 pub fn view<'a>(
     date: Date,
+    today: Date,
     store: &'a Store,
     draft: &'a str,
     draft_minute: Option<u16>,
     draft_repeat: Repeat,
+    draft_end: Option<Date>,
     military: bool,
     spacing: Spacing,
 ) -> Element<'a, DayMessage> {
@@ -210,13 +238,67 @@ pub fn view<'a>(
         .on_press(DayMessage::CycleRepeat)
         .class(repeat_pill_class());
 
-    // Picker column: time stepper on top, repeat pill below it, both centered.
-    // Stacked rather than side-by-side because the popup width is pinned to the
-    // calendar grid (POPUP_WIDTH) and the two pills side-by-side overflow it;
-    // vertical is the axis we have room on.
+    // Ends pill: a -/+ stepper in the same bordered pill as the time stepper.
+    // Greyed out - no presses, muted label - until a repeat is chosen, rather
+    // than hidden, so nothing jumps when a repeat is picked and the option is
+    // visible before it's usable. Each plus adds one period of the repeat; the
+    // label is the date that lands on. Minus is dead at "Never" - nothing to
+    // pull back to. The fixed label width keeps the pill from resizing as the
+    // date changes.
+    let ends_enabled = draft_repeat != Repeat::None;
+    let mut ends_minus = button::icon(icon::from_name("list-remove-symbolic").size(14));
+    let mut ends_plus = button::icon(icon::from_name("list-add-symbolic").size(14));
+    if ends_enabled {
+        ends_plus = ends_plus.on_press(DayMessage::EndsUp);
+        if draft_end.is_some() {
+            ends_minus = ends_minus.on_press(DayMessage::EndsDown);
+        }
+    }
+    let ends_text = text(end_label(draft_end, today)).size(14).class(if ends_enabled {
+        cosmic::style::Text::Default
+    } else {
+        cosmic::style::Text::Custom(|t| cosmic::iced::widget::text::Style {
+            color: Some(t.cosmic().palette.neutral_6.into()),
+            ..Default::default()
+        })
+    });
+    let ends_inner = row::with_capacity(3)
+        .push(ends_minus)
+        .push(
+            container(ends_text)
+                .width(Length::Fixed(118.0))
+                .center_x(Length::Fixed(118.0)),
+        )
+        .push(ends_plus)
+        .spacing(spacing.space_xxs)
+        .align_y(Alignment::Center);
+    let ends_pill = container(ends_inner)
+        .padding([2, 6])
+        .class(cosmic::style::Container::custom(|t| {
+            let cosmic = t.cosmic();
+            cosmic::iced::widget::container::Style {
+                border: cosmic::iced::Border {
+                    radius: cosmic.corner_radii.radius_m.into(),
+                    width: 1.0,
+                    color: cosmic.palette.neutral_5.into(),
+                },
+                ..Default::default()
+            }
+        }));
+
+    // Picker: time stepper on top; under it the repeat pill and the Ends pill
+    // side by side. The stepper and a pill together overflow the popup's fixed
+    // width (POPUP_WIDTH is pinned to the calendar grid), but the two small
+    // pills fit one row with room to spare, and the pair reads as one control:
+    // how often, and until when.
+    let pills = row::with_capacity(2)
+        .push(repeat_pill)
+        .push(ends_pill)
+        .spacing(spacing.space_xs)
+        .align_y(Alignment::Center);
     let picker_inner = column::with_capacity(2)
         .push(stepper_pill)
-        .push(repeat_pill)
+        .push(pills)
         .spacing(spacing.space_xs)
         .align_x(Alignment::Center);
     let picker = container(picker_inner)
@@ -255,6 +337,7 @@ pub fn view<'a>(
                 item.done,
                 item.at_minute,
                 item.repeat,
+                item.imported,
                 military,
                 spacing,
             ));
@@ -315,13 +398,15 @@ fn repeat_pill_class() -> cosmic::theme::Button {
 }
 
 /// One entry row: checkbox toggles done, text (with its hour label if any),
-/// an optional repeat glyph for recurring items, trash deletes.
+/// an optional repeat glyph for recurring items, an optional envelope glyph
+/// for items that came from an invite, trash deletes.
 fn entry_row<'a>(
     index: usize,
     label: String,
     done: bool,
     at_minute: Option<u16>,
     repeat: Repeat,
+    imported: bool,
     military: bool,
     spacing: Spacing,
 ) -> Element<'a, DayMessage> {
@@ -339,7 +424,7 @@ fn entry_row<'a>(
     let delete = button::icon(icon::from_name("user-trash-symbolic").size(16))
         .on_press(DayMessage::Delete(index));
 
-    let mut r = row::with_capacity(5).push(check).push(text_widget);
+    let mut r = row::with_capacity(6).push(check).push(text_widget);
 
     if at_minute.is_some() {
         r = r.push(
@@ -359,6 +444,15 @@ fn entry_row<'a>(
     if repeat != Repeat::None {
         r = r.push(
             container(icon::from_name("media-playlist-repeat-symbolic").size(12))
+                .padding([0, spacing.space_xxxs as u16]),
+        );
+    }
+
+    // Small envelope for items that came from a calendar invite: this row
+    // follows the organizer - an update moves it, a cancellation removes it.
+    if imported {
+        r = r.push(
+            container(icon::from_name("mail-unread-symbolic").size(12))
                 .padding([0, spacing.space_xxxs as u16]),
         );
     }
