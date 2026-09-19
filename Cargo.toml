@@ -1,6 +1,6 @@
 [package]
 name        = "void-watcher"
-version     = "2.0.0"
+version     = "3.0.0"
 edition     = "2024"
 authors     = ["Michael Van Auker (HMRDSmoke)"]
 license     = "GPL-3.0-or-later"
@@ -28,6 +28,7 @@ desktop notifications for reminders."""
 assets = [
     ["target/release/void-watcher", "usr/bin/com.github.hmrdsmoke.void-watcher", "755"],
     ["resources/com.github.hmrdsmoke.void-watcher.desktop", "usr/share/applications/", "644"],
+    ["resources/com.github.hmrdsmoke.void-watcher.import.desktop", "usr/share/applications/", "644"],
     ["resources/com.github.hmrdsmoke.void-watcher.metainfo.xml", "usr/share/metainfo/", "644"],
     ["resources/icon.svg", "usr/share/icons/hicolor/scalable/apps/com.github.hmrdsmoke.void-watcher.svg", "644"],
 ]

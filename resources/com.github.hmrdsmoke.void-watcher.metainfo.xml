@@ -11,6 +11,13 @@
       restarts and reboots.
     </p>
     <p>
+      Make it your default calendar and meeting invites land in it: open the
+      .ics attached to an invite from Outlook, Google Calendar, Zoom or Teams
+      and the meeting shows on its day with its time and repeat rule. Open the
+      update when a meeting moves and the item moves with it; open a
+      cancellation and it's gone.
+    </p>
+    <p>
       The clock reads the same settings the stock COSMIC clock does, so whatever
       you pick in Settings › Date &amp; Time — 24-hour time, seconds, weekday,
       date in the panel, first day of the week, even a custom format — Void
@@ -19,6 +26,8 @@
     <p>What's in the box:</p>
     <ul>
       <li>Per-day to-do list — right-click a day to add items, check them off, or delete them</li>
+      <li>Recurring to-dos — daily, weekly, or yearly, with an optional end date, each occurrence checked off on its own</li>
+      <li>Opens calendar invites (.ics) — pick Void Watcher as your default calendar app; updates move the item, cancellations remove it</li>
       <li>Desktop notifications before an item is due, with a lead time you set</li>
       <li>To-dos persist across restarts and reboots</li>
       <li>Panel clock that follows your Date &amp; Time settings</li>
@@ -54,6 +63,14 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="3.0.0" date="2026-09-19">
+      <description>
+        <p>Void Watcher can be your default calendar app. Open a meeting invite (.ics) with it and the meeting lands on its day with its time and repeat rule.</p>
+        <p>Invites keep their identity: an updated invite moves the existing item instead of adding a twin, and a cancelled invite removes it. Items from invites show a small envelope.</p>
+        <p>End dates for recurring to-dos, set with a new Ends pill beside the repeat pill.</p>
+        <p>Recurrence from invites: every-Nth intervals, monthly rules, and skipped occurrences.</p>
+      </description>
+    </release>
     <release version="2.0.0" date="2026-09-16">
       <description>
         <p>Recurring to-dos: daily, weekly, or yearly items, checked off per day.</p>
